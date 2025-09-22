@@ -17,6 +17,7 @@
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.1",
+    "bcrypt": "^6.0.0",
     "dotenv": "^17.2.2",
     "fastify": "^5.6.0",
     "fastify-jwt": "^4.1.3",

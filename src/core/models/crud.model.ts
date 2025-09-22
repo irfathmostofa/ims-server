@@ -41,8 +41,15 @@ export class CrudModel {
     const { rows } = await pool.query(`SELECT * FROM ${this.table}`);
     return rows;
   }
+  async findByField(field: string, value: Record<string, any>) {
+    const { rows } = await pool.query(
+      `SELECT * FROM ${this.table} WHERE ${field} = $1`,
+      [value]
+    );
+    return rows;
+  }
 
-  async findById(id: number) {
+  async findById(id: any) {
     const { rows } = await pool.query(
       `SELECT * FROM ${this.table} WHERE id = $1`,
       [id]
