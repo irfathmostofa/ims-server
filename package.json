@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server/index.ts",
     "build": "tsc",
-    "start": "node dist/server/index.js",
+    "start": "tsx src/server/index.ts",
     "test": "jest --watch",
     "db:check": "tsx src/config/dbCheck.ts"
   },
