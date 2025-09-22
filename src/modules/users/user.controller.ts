@@ -1,14 +1,8 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { CrudModel } from "../../core/models/crud.model";
 import { successResponse } from "../../core/utils/response";
 import bcrypt from "bcrypt";
 import { generatePrefixedId } from "../../core/models/idGenerator";
-
-const userModel = new CrudModel(
-  "users",
-  ["username", "email", "password", "branch_id", "role_id"],
-  ["username", "email"]
-);
+import { userModel } from "./user.model";
 
 export async function getUsers(req: FastifyRequest, reply: FastifyReply) {
   try {
@@ -23,8 +17,8 @@ export async function createUser(req: FastifyRequest, reply: FastifyReply) {
   try {
     const userData = req.body as Record<string, any>;
 
-    userData.password = await bcrypt.hash(userData.password, 10);
-    userData.user_id = await generatePrefixedId("users", "USER");
+    userData.password_hash = await bcrypt.hash(userData.password_hash, 10);
+    userData.code = await generatePrefixedId("users", "USR");
 
     const newUser = await userModel.create(userData);
     reply.send(successResponse(newUser, "User created successfully"));
