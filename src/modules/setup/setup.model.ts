@@ -10,33 +10,15 @@ export const companyModel = new CrudModel(
     "email",
     "logo",
     "website",
-    "status",
     "created_by",
   ],
   ["code", "name", "address", "phone", "email"]
 );
+
 export const brancheModel = new CrudModel(
-  "branches",
-  [
-    "code",
-    "company_id",
-    "name",
-    "type",
-    "address",
-    "phone",
-    "status",
-    "created_by",
-  ],
-  [
-    "code",
-    "company_id",
-    "name",
-    "type",
-    "address",
-    "phone",
-    "status",
-    "created_by",
-  ]
+  "branch",
+  ["code", "company_id", "name", "type", "address", "phone", "created_by"],
+  ["code", "company_id", "name", "type", "address", "phone", "created_by"]
 );
 export const roleModel = new CrudModel(
   "role",
