@@ -18,6 +18,7 @@ export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+
 export async function createBranche(req: FastifyRequest, reply: FastifyReply) {
   try {
     const fields = req.body as Record<string, any>;
@@ -31,6 +32,14 @@ export async function createBranche(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+export async function getBranch(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const users = await brancheModel.findAll();
+    reply.send(successResponse(users));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
 export async function createRoles(req: FastifyRequest, reply: FastifyReply) {
   try {
     const fields = req.body as Record<string, any>;
@@ -40,6 +49,14 @@ export async function createRoles(req: FastifyRequest, reply: FastifyReply) {
     const newData = await roleModel.create(fields);
 
     reply.send(successResponse(newData, "role created successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function getRoles(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const users = await roleModel.findAll();
+    reply.send(successResponse(users));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
