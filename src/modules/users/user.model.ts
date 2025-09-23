@@ -8,20 +8,9 @@ export const userModel = new CrudModel(
     "username",
     "phone",
     "address",
-    "image",
     "password_hash",
     "role_id",
     "status",
   ],
-  [
-    "code",
-    "branch_id",
-    "username",
-    "phone",
-    "address",
-    "image",
-    "password_hash",
-    "role_id",
-    "status",
-  ]
+  ["code", "branch_id", "username", "phone", "password_hash"]
 );
