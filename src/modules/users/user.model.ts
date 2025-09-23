@@ -10,7 +10,6 @@ export const userModel = new CrudModel(
     "address",
     "password_hash",
     "role_id",
-    "status",
   ],
   ["code", "branch_id", "username", "phone", "password_hash"]
 );
