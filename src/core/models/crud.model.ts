@@ -41,7 +41,8 @@ export class CrudModel {
     const { rows } = await pool.query(`SELECT * FROM ${this.table}`);
     return rows;
   }
-  async findByField(field: string, value: Record<string, any>) {
+
+  async findByField(field: string, value: any) {
     const { rows } = await pool.query(
       `SELECT * FROM ${this.table} WHERE ${field} = $1`,
       [value]
@@ -97,5 +98,62 @@ export class CrudModel {
       [id]
     );
     return rows[0];
+  }
+
+  // ✅ Get data with pagination + filters
+  async findWithPagination(
+    page: number = 1,
+    limit: number = 10,
+    filters: Record<string, any> = {}
+  ) {
+    const offset = (page - 1) * limit;
+
+    let whereClause = "";
+    const values: any[] = [];
+    let i = 1;
+
+    if (Object.keys(filters).length > 0) {
+      const conditions = Object.entries(filters).map(([key, value]) => {
+        values.push(value);
+        return `${key} = $${i++}`;
+      });
+      whereClause = `WHERE ${conditions.join(" AND ")}`;
+    }
+
+    const query = `
+      SELECT * FROM ${this.table}
+      ${whereClause}
+      ORDER BY id DESC
+      LIMIT $${i++} OFFSET $${i}
+    `;
+
+    values.push(limit, offset);
+
+    const { rows } = await pool.query(query, values);
+
+    return rows;
+  }
+
+  // ✅ Get data by date range + optional pagination
+  async findByDateRange(
+    dateField: string,
+    startDate: string,
+    endDate: string,
+    page: number = 1,
+    limit: number = 10
+  ) {
+    const offset = (page - 1) * limit;
+
+    const { rows } = await pool.query(
+      `
+      SELECT * FROM ${this.table}
+      WHERE ${dateField} BETWEEN $1 AND $2
+      ORDER BY ${dateField} DESC
+      LIMIT $3 OFFSET $4
+      `,
+      [startDate, endDate, limit, offset]
+    );
+
+    return rows;
   }
 }

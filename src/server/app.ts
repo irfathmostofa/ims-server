@@ -17,14 +17,12 @@ app.register(fastifyCors, {
   origin: "*",
 });
 app.register(fastifyHelmet);
-
-app.register(jwt, { secret: process.env.JWT_SECRET || "secret" });
+app.register(authPlugin);
+// app.register(jwt, { secret: process.env.JWT_SECRET || "secret" });
 
 // Routes
-
 app.register(userRoutes, { prefix: "/users" });
 app.register(setupRoutes, { prefix: "/setup" });
 
-app.register(authPlugin);
 app.register(authRoutes, { prefix: "/auth" });
 export default app;
