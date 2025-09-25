@@ -18,19 +18,19 @@ export default async function setupRoutes(app: FastifyInstance) {
   // app.addHook("onRequest", app.authenticate);
   // COMPANY
   app.post("/companies", createCompany);
-  app.post("/get-companies", getCompanies);
+  app.get("/get-companies", getCompanies);
   app.post("/update-companies/:id", updateCompany);
   app.post("/delete-companies/:id", deleteCompany);
 
   // BRANCH
   app.post("/branches", createBranche);
-  app.post("/get-branches", getBranches);
+  app.get("/get-branches", getBranches);
   app.post("/update-branches/:id", updateBranche);
   app.post("/delete-branches/:id", deleteBranche);
 
   // ROLE
   app.post("/roles", createRole);
-  app.post("/get-roles", getRoles);
+  app.get("/get-roles", getRoles);
   app.post("/update-roles/:id", updateRole);
   app.post("/delete-roles/:id", deleteRole);
 }
