@@ -9,7 +9,7 @@ export const companyModel = new CrudModel(
 export const brancheModel = new CrudModel(
   "branch",
   ["code", "company_id", "name", "type", "address", "phone"],
-  ["code", "company_id", "name"]
+  ["code", "name"]
 );
 export const roleModel = new CrudModel(
   "role",
