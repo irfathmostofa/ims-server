@@ -15,7 +15,7 @@ import {
 } from "./setup.controller";
 
 export default async function setupRoutes(app: FastifyInstance) {
-  app.addHook("onRequest", app.authenticate);
+  // app.addHook("onRequest", app.authenticate);
   // COMPANY
   app.post("/companies", createCompany);
   app.get("/companies", getCompanies);
