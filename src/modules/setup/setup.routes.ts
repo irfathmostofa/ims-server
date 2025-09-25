@@ -26,7 +26,7 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.post("/branches", createBranche);
   app.get("/get-branches", getBranches);
   app.post("/update-branches/:id", updateBranche);
-  app.post("/delete-branches/:id", deleteBranche);
+  app.post("/delete-branches", deleteBranche);
 
   // ROLE
   app.post("/roles", createRole);

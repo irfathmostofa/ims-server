@@ -38,7 +38,7 @@ export async function updateCompany(req: FastifyRequest, reply: FastifyReply) {
 
 export async function deleteCompany(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id:number };
+    const { id } = req.body as { id: number };
     const deleted = await companyModel.delete(id);
     reply.send(successResponse(deleted, "Company deleted successfully"));
   } catch (err: any) {
@@ -69,7 +69,7 @@ export async function getBranches(req: FastifyRequest, reply: FastifyReply) {
 
 export async function updateBranche(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id:number };
+    const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
     const updated = await brancheModel.update(id, fields);
     reply.send(successResponse(updated, "Branch updated successfully"));
@@ -80,7 +80,7 @@ export async function updateBranche(req: FastifyRequest, reply: FastifyReply) {
 
 export async function deleteBranche(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id:number };
+    const { id } = req.params as { id: number };
     const deleted = await brancheModel.delete(id);
     reply.send(successResponse(deleted, "Branch deleted successfully"));
   } catch (err: any) {
@@ -111,7 +111,7 @@ export async function getRoles(req: FastifyRequest, reply: FastifyReply) {
 
 export async function updateRole(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id:number };
+    const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
     const updated = await roleModel.update(id, fields);
     reply.send(successResponse(updated, "Role updated successfully"));
@@ -122,7 +122,7 @@ export async function updateRole(req: FastifyRequest, reply: FastifyReply) {
 
 export async function deleteRole(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id:number };
+    const { id } = req.params as { id: number };
     const deleted = await roleModel.delete(id);
     reply.send(successResponse(deleted, "Role deleted successfully"));
   } catch (err: any) {
