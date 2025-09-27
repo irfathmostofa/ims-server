@@ -11,5 +11,5 @@ export const userModel = new CrudModel(
     "password_hash",
     "role_id",
   ],
-  ["code", "branch_id", "username", "phone", "password_hash"]
+  ["username", "phone"]
 );

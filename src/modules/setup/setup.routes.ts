@@ -32,5 +32,5 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.post("/roles", createRole);
   app.get("/get-roles", getRoles);
   app.post("/update-roles/:id", updateRole);
-  app.post("/delete-roles/:id", deleteRole);
+  app.post("/delete-roles", deleteRole);
 }
