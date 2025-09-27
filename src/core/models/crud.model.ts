@@ -4,10 +4,23 @@ export class CrudModel {
   constructor(
     private table: string,
     private requiredFields: string[] = [],
-    private uniqueFields: string[] = []
+    private uniqueFields: string[] = [],
+    private optionalFields: string[] = [] 
   ) {}
 
-  // Helper: validate required fields
+  // ✅ Sanitize data: empty string → null, remove undefined
+  private sanitizeData(data: Record<string, any>) {
+    return Object.fromEntries(
+      Object.entries(data)
+        .map(([key, value]) => [key, value === "" ? null : value])
+        .filter(
+          ([key, value]) =>
+            value !== undefined || this.optionalFields.includes(key)
+        )
+    );
+  }
+
+  // ✅ Validate required fields
   private validateRequired(data: Record<string, any>) {
     const missingFields = this.requiredFields.filter(
       (field) => data[field] === undefined || data[field] === null
@@ -17,7 +30,7 @@ export class CrudModel {
     }
   }
 
-  // Helper: check duplicates for unique fields
+  // ✅ Check duplicates
   private async checkDuplicates(data: Record<string, any>, excludeId?: number) {
     for (const field of this.uniqueFields) {
       if (!(field in data)) continue;
@@ -42,14 +55,6 @@ export class CrudModel {
     return rows;
   }
 
-  async findByField(field: string, value: any) {
-    const { rows } = await pool.query(
-      `SELECT * FROM ${this.table} WHERE ${field} = $1`,
-      [value]
-    );
-    return rows;
-  }
-
   async findById(id: any) {
     const { rows } = await pool.query(
       `SELECT * FROM ${this.table} WHERE id = $1`,
@@ -58,12 +63,21 @@ export class CrudModel {
     return rows[0];
   }
 
-  async create(data: Record<string, any>) {
-    this.validateRequired(data);
-    await this.checkDuplicates(data);
+  async findByField(field: string, value: any) {
+    const { rows } = await pool.query(
+      `SELECT * FROM ${this.table} WHERE ${field} = $1`,
+      [value]
+    );
+    return rows;
+  }
 
-    const keys = Object.keys(data).join(", ");
-    const values = Object.values(data);
+  async create(data: Record<string, any>) {
+    const sanitized = this.sanitizeData(data);
+    this.validateRequired(sanitized);
+    await this.checkDuplicates(sanitized);
+
+    const keys = Object.keys(sanitized).join(", ");
+    const values = Object.values(sanitized);
     const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
 
     const { rows } = await pool.query(
@@ -75,11 +89,12 @@ export class CrudModel {
   }
 
   async update(id: number, data: Record<string, any>) {
-    this.validateRequired(data);
-    await this.checkDuplicates(data, id);
+    const sanitized = this.sanitizeData(data);
+    this.validateRequired(sanitized);
+    await this.checkDuplicates(sanitized, id);
 
-    const keys = Object.keys(data);
-    const values = Object.values(data);
+    const keys = Object.keys(sanitized);
+    const values = Object.values(sanitized);
     const setClause = keys.map((key, i) => `${key} = $${i + 1}`).join(", ");
 
     const { rows } = await pool.query(
@@ -100,18 +115,16 @@ export class CrudModel {
     return rows[0];
   }
 
-  // ✅ Get data with pagination + filters
   async findWithPagination(
     page: number = 1,
     limit: number = 10,
     filters: Record<string, any> = {}
   ) {
     const offset = (page - 1) * limit;
-
-    let whereClause = "";
     const values: any[] = [];
     let i = 1;
 
+    let whereClause = "";
     if (Object.keys(filters).length > 0) {
       const conditions = Object.entries(filters).map(([key, value]) => {
         values.push(value);
@@ -126,15 +139,12 @@ export class CrudModel {
       ORDER BY id DESC
       LIMIT $${i++} OFFSET $${i}
     `;
-
     values.push(limit, offset);
 
     const { rows } = await pool.query(query, values);
-
     return rows;
   }
 
-  // ✅ Get data by date range + optional pagination
   async findByDateRange(
     dateField: string,
     startDate: string,
@@ -143,7 +153,6 @@ export class CrudModel {
     limit: number = 10
   ) {
     const offset = (page - 1) * limit;
-
     const { rows } = await pool.query(
       `
       SELECT * FROM ${this.table}

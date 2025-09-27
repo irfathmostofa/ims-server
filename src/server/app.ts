@@ -7,6 +7,7 @@ import authPlugin from "../core/plugins/auth";
 import userRoutes from "../modules/users/user.routes";
 import authRoutes from "../modules/auth/auth.routes";
 import setupRoutes from "../modules/setup/setup.routes";
+import productRoutes from "../modules/product/product.routes";
 
 dotenv.config();
 
@@ -23,6 +24,6 @@ app.register(authPlugin);
 // Routes
 app.register(userRoutes, { prefix: "/users" });
 app.register(setupRoutes, { prefix: "/setup" });
-
 app.register(authRoutes, { prefix: "/auth" });
+app.register(productRoutes, { prefix: "/product" });
 export default app;

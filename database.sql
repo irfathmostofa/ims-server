@@ -66,11 +66,24 @@ CREATE TABLE product_category (
     image TEXT,
     status VARCHAR(1) DEFAULT 'A'
 );
+CREATE TABLE uom (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE, -- e.g. UOM-001
+    name VARCHAR(50) NOT NULL,   -- e.g. Kilogram, Piece, Liter
+    symbol VARCHAR(10),          -- e.g. KG, PCS, L
+    description TEXT,
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE product (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE,
     category_id INT REFERENCES product_category(id),
+    uom_id INT REFERENCES uom(id),
     name VARCHAR(150) NOT NULL,
     description TEXT,
     uom VARCHAR(20),
@@ -85,6 +98,15 @@ CREATE TABLE product_variant (
     name VARCHAR(50), -- e.g., Red/XL
     additional_price DECIMAL(12,2) DEFAULT 0,
     status VARCHAR(1) DEFAULT 'A'
+);
+CREATE TABLE uom_conversion (
+    id SERIAL PRIMARY KEY,
+    product_id INT REFERENCES product(id) ON DELETE CASCADE,
+    from_uom_id INT REFERENCES uom(id),
+    to_uom_id INT REFERENCES uom(id),
+    conversion_factor DECIMAL(12,4) NOT NULL CHECK (conversion_factor > 0), -- e.g. 1 box = 12 pcs
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE inventory_stock (
