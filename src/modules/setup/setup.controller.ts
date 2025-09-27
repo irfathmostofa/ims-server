@@ -80,7 +80,7 @@ export async function updateBranche(req: FastifyRequest, reply: FastifyReply) {
 
 export async function deleteBranche(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id: number };
+    const { id } = req.body as { id: number };
     const deleted = await brancheModel.delete(id);
     reply.send(successResponse(deleted, "Branch deleted successfully"));
   } catch (err: any) {
@@ -122,7 +122,7 @@ export async function updateRole(req: FastifyRequest, reply: FastifyReply) {
 
 export async function deleteRole(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id: number };
+    const { id } = req.body as { id: number };
     const deleted = await roleModel.delete(id);
     reply.send(successResponse(deleted, "Role deleted successfully"));
   } catch (err: any) {
