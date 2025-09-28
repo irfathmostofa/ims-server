@@ -86,7 +86,6 @@ CREATE TABLE product (
     uom_id INT REFERENCES uom(id),
     name VARCHAR(150) NOT NULL,
     description TEXT,
-    uom VARCHAR(20),
     cost_price DECIMAL(12,2) NOT NULL,
     selling_price DECIMAL(12,2) NOT NULL,
     status VARCHAR(1) DEFAULT 'A'
@@ -94,10 +93,28 @@ CREATE TABLE product (
 
 CREATE TABLE product_variant (
     id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE, -- e.g. VAR-001
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
-    name VARCHAR(50), -- e.g., Red/XL
+    name VARCHAR(50), -- e.g. size/color
     additional_price DECIMAL(12,2) DEFAULT 0,
-    status VARCHAR(1) DEFAULT 'A'
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I'))
+);
+
+CREATE TABLE product_image (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE, -- e.g. IMG-001
+    product_id INT REFERENCES product(id) ON DELETE CASCADE,
+    url TEXT,
+    is_primary BOOLEAN DEFAULT FALSE
+);
+CREATE TABLE product_barcode (
+    id SERIAL PRIMARY KEY,
+    product_variant_id INT REFERENCES product_variant(id),
+    barcode VARCHAR(50) UNIQUE NOT NULL,
+    type VARCHAR(20) DEFAULT 'EAN13', -- EAN13, CODE128, QR
+    is_primary BOOLEAN DEFAULT FALSE,
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE uom_conversion (
     id SERIAL PRIMARY KEY,
@@ -108,7 +125,36 @@ CREATE TABLE uom_conversion (
     created_by INT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE purchase_order (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE,
+    branch_id INT REFERENCES branch(id),
+    supplier_id INT REFERENCES party(id),
+    order_date DATE DEFAULT CURRENT_DATE,
+    expected_date DATE,
+    delivery_date DATE,
+    total_amount DECIMAL(12,2) DEFAULT 0,
+    tax_amount DECIMAL(12,2) DEFAULT 0,
+    discount_amount DECIMAL(12,2) DEFAULT 0,
+    net_amount DECIMAL(12,2) GENERATED ALWAYS AS (total_amount + tax_amount - discount_amount) STORED,
+    status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','PARTIAL','RECEIVED','CANCELLED','CLOSED')),
+    notes TEXT,
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
+CREATE TABLE purchase_order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES purchase_order(id) ON DELETE CASCADE,
+    product_variant_id INT REFERENCES product_variant(id),
+    quantity DECIMAL(12,2) NOT NULL,
+    unit_price DECIMAL(12,2) NOT NULL,
+    discount DECIMAL(12,2) DEFAULT 0,
+    tax_rate DECIMAL(5,2) DEFAULT 0,
+    received_quantity DECIMAL(12,2) DEFAULT 0,
+    subtotal DECIMAL(12,2) GENERATED ALWAYS AS ((quantity * unit_price) - discount) STORED,
+    notes TEXT
+);
 CREATE TABLE inventory_stock (
     id SERIAL PRIMARY KEY,
     branch_id INT REFERENCES branch(id),
@@ -210,11 +256,13 @@ CREATE TABLE activity_log (
 );
 CREATE TABLE setup_data (
     id SERIAL PRIMARY KEY,
-    setup_code VARCHAR(20) UNIQUE, -- e.g. SET-001
-    key_name VARCHAR(50) UNIQUE NOT NULL,
-    value TEXT,
+    setup_code VARCHAR(20) UNIQUE,      -- SET-001
+    group_name VARCHAR(50),             -- 'landing_page', 'theme', 'payment_gateway'
+    key_name VARCHAR(100) NOT NULL,     -- 'hero_banner', 'featured_products', 'footer_links'
+    value JSONB NOT NULL,               -- store dynamic structured data
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
     created_by INT REFERENCES users(id),
-    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_update INT REFERENCES users(id),
-    last_update_date TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

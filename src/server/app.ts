@@ -8,6 +8,7 @@ import userRoutes from "../modules/users/user.routes";
 import authRoutes from "../modules/auth/auth.routes";
 import setupRoutes from "../modules/setup/setup.routes";
 import productRoutes from "../modules/product/product.routes";
+import partyRoutes from "../modules/party/party.routes";
 
 dotenv.config();
 
@@ -26,4 +27,5 @@ app.register(userRoutes, { prefix: "/users" });
 app.register(setupRoutes, { prefix: "/setup" });
 app.register(authRoutes, { prefix: "/auth" });
 app.register(productRoutes, { prefix: "/product" });
+app.register(partyRoutes, { prefix: "/party" });
 export default app;
