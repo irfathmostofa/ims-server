@@ -19,7 +19,7 @@ export async function createProductCat(
 ) {
   try {
     const fields = req.body as Record<string, any>;
-    fields.created_by = req.user?.id;
+    fields.created_by = (req.user as { id: number }).id;
 
     fields.code = await generatePrefixedId("category", "PCAT");
     const newData = await productCatModel.create(fields);
@@ -47,7 +47,7 @@ export async function updateProductCat(
   try {
     const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
-    fields.updated_by = req.user?.id;
+    fields.updated_by = (req.user as { id: number }).id;
     const updated = await productCatModel.update(id, fields);
     reply.send(
       successResponse(updated, "Product Category updated successfully")
@@ -76,7 +76,7 @@ export async function createUOM(req: FastifyRequest, reply: FastifyReply) {
   try {
     const fields = req.body as Record<string, any>;
     fields.code = await generatePrefixedId("uom", "UOM");
-    fields.created_by = req.user?.id;
+    fields.created_by = (req.user as { id: number }).id;
     const newData = await UomModel.create(fields);
     reply.send(
       successResponse(newData, "Unit Of masurement created successfully")
@@ -99,7 +99,7 @@ export async function updateUOM(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
-    fields.updated_by = req.user?.id;
+    fields.updated_by = (req.user as { id: number }).id;
     const updated = await UomModel.update(id, fields);
     reply.send(
       successResponse(updated, "Unit Of masurement updated successfully")
@@ -138,7 +138,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
 
     // ✅ product
     productData.code = await generatePrefixedId("product", "PROD");
-    if (req.user?.id) productData.created_by = req.user.id;
+    productData.created_by = (req.user as { id: number }).id;
 
     const product = await productModel.create(productData);
 
@@ -148,7 +148,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
         product_id: product.id,
         category_id: cat.id,
         is_primary: cat.is_primary || false,
-        created_by: req.user?.id,
+        created_by: (req.user as { id: number }).id,
       });
     }
 
@@ -156,18 +156,26 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
     for (const v of variants) {
       v.code = await generatePrefixedId("product_variant", "VAR");
       v.product_id = product.id;
-      v.created_by = req.user?.id;
+      v.created_by = (req.user as { id: number }).id;
       const variant = await productVariantModel.create(v);
 
       // ✅ barcodes under variant
-      const vBarcodes = barcodes.filter((b) => b.variant_code === v.tempCode); // tempCode → mapping from FE
+      const vBarcodes = barcodes.filter(
+        (b: {
+          variant_code: string;
+          barcode: string;
+          type?: string;
+          is_primary?: boolean;
+        }) => b.variant_code === v.tempCode
+      );
+
       for (const b of vBarcodes) {
         await productBarcodeModel.create({
           product_variant_id: variant.id,
           barcode: b.barcode,
           type: b.type || "EAN13",
           is_primary: b.is_primary || false,
-          created_by: req.user?.id,
+          created_by: (req.user as { id: number }).id,
         });
       }
     }
@@ -176,7 +184,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
     for (const img of images) {
       img.code = await generatePrefixedId("product_image", "IMG");
       img.product_id = product.id;
-      img.created_by = req.user?.id;
+      img.created_by = (req.user as { id: number }).id;
       await productImageModel.create(img);
     }
 
@@ -202,7 +210,9 @@ export async function bulkCreateProducts(
 
     for (const p of products) {
       p.code = await generatePrefixedId("product", "PROD");
-      if (req.user?.id) p.created_by = req.user.id;
+      // if (req.user?.id) p.created_by = req.user.id;
+      p.created_by = (req.user as { id: number }).id;
+
       const product = await productModel.create(p);
       created.push(product);
     }

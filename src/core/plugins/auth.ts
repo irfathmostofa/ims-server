@@ -13,7 +13,7 @@ export default fp(async function (fastify) {
       "authenticate",
       async (req: FastifyRequest, reply: FastifyReply) => {
         try {
-          await req.jwtVerify();
+          await req.jwtVerify(); // this populates req.user
         } catch (err) {
           reply.code(401).send({ message: "Unauthorized" });
         }
