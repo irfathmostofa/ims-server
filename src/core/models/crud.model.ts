@@ -5,7 +5,7 @@ export class CrudModel {
     private table: string,
     private requiredFields: string[] = [],
     private uniqueFields: string[] = [],
-    private optionalFields: string[] = [] 
+    private optionalFields: string[] = []
   ) {}
 
   // ✅ Sanitize data: empty string → null, remove undefined

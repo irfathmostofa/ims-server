@@ -28,7 +28,8 @@
     "pg": "^8.16.3",
     "pino": "^9.11.0",
     "pino-pretty": "^13.1.1",
-    "streamifier": "^0.1.1"
+    "streamifier": "^0.1.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

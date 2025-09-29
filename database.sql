@@ -1,6 +1,6 @@
 CREATE TABLE company (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- COM-001
+    code VARCHAR(20) UNIQUE,
     name VARCHAR(150) NOT NULL,
     address TEXT,
     phone VARCHAR(20),
@@ -14,10 +14,10 @@ CREATE TABLE company (
 
 CREATE TABLE branch (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- BR-001
+    code VARCHAR(20) UNIQUE, 
     company_id INT REFERENCES company(id),
     name VARCHAR(100) NOT NULL,
-    type VARCHAR(50), -- HQ, Retail, Franchise
+    type VARCHAR(50),
     address TEXT,
     phone VARCHAR(20),
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
@@ -26,14 +26,14 @@ CREATE TABLE branch (
 );
 CREATE TABLE role (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- ROLE-001
+    code VARCHAR(20) UNIQUE, 
     name VARCHAR(50) NOT NULL,
     description TEXT
 );
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- USR-001
+    code VARCHAR(20) UNIQUE, 
     branch_id INT REFERENCES branch(id),
     username VARCHAR(50) UNIQUE NOT NULL,
     phone VARCHAR(15) UNIQUE NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE users (
 );
 CREATE TABLE party (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- PAR-001
+    code VARCHAR(20) UNIQUE, 
     branch_id INT REFERENCES branch(id),
     type VARCHAR(20) CHECK (type IN ('CUSTOMER','SUPPLIER')),
     name VARCHAR(100) NOT NULL,
@@ -58,19 +58,24 @@ CREATE TABLE party (
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE product_category (
+CREATE TABLE category (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE,
-    parent_id INT REFERENCES product_category(id),
+    parent_id INT REFERENCES category(id),
     name VARCHAR(100) NOT NULL,
     image TEXT,
-    status VARCHAR(1) DEFAULT 'A'
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT REFERENCES users(id),    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE TABLE uom (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- e.g. UOM-001
-    name VARCHAR(50) NOT NULL,   -- e.g. Kilogram, Piece, Liter
-    symbol VARCHAR(10),          -- e.g. KG, PCS, L
+    code VARCHAR(20) UNIQUE, 
+    name VARCHAR(50) NOT NULL,   
+    symbol VARCHAR(10),          
     description TEXT,
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
     created_by INT REFERENCES users(id),
@@ -82,46 +87,73 @@ CREATE TABLE uom (
 CREATE TABLE product (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE,
-    category_id INT REFERENCES product_category(id),
     uom_id INT REFERENCES uom(id),
     name VARCHAR(150) NOT NULL,
     description TEXT,
     cost_price DECIMAL(12,2) NOT NULL,
     selling_price DECIMAL(12,2) NOT NULL,
-    status VARCHAR(1) DEFAULT 'A'
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE product_categories (
+    id SERIAL PRIMARY KEY,
+    product_id INT REFERENCES product(id) ON DELETE CASCADE,
+    category_id INT REFERENCES category(id) ON DELETE CASCADE,
+    is_primary BOOLEAN DEFAULT FALSE,
+    created_by INT REFERENCES users(id),  
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (product_id, category_id)
 );
 
 CREATE TABLE product_variant (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- e.g. VAR-001
+    code VARCHAR(20) UNIQUE, 
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
-    name VARCHAR(50), -- e.g. size/color
+    name VARCHAR(50), 
     additional_price DECIMAL(12,2) DEFAULT 0,
-    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I'))
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT REFERENCES users(id),    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE product_image (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- e.g. IMG-001
+    code VARCHAR(20) UNIQUE, 
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
-    url TEXT,
-    is_primary BOOLEAN DEFAULT FALSE
+    url TEXT NOT NULL,
+    alt_text VARCHAR(255),          
+    is_primary BOOLEAN DEFAULT FALSE,
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')), 
+    created_by INT REFERENCES users(id),      
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE TABLE product_barcode (
     id SERIAL PRIMARY KEY,
-    product_variant_id INT REFERENCES product_variant(id),
+    product_variant_id INT REFERENCES product_variant(id) ON DELETE CASCADE, 
     barcode VARCHAR(50) UNIQUE NOT NULL,
-    type VARCHAR(20) DEFAULT 'EAN13', -- EAN13, CODE128, QR
+    type VARCHAR(20) DEFAULT 'EAN13' CHECK (type IN ('EAN13','CODE128','QR','UPC')), 
     is_primary BOOLEAN DEFAULT FALSE,
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')), 
     created_by INT REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),     
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE uom_conversion (
     id SERIAL PRIMARY KEY,
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
     from_uom_id INT REFERENCES uom(id),
     to_uom_id INT REFERENCES uom(id),
-    conversion_factor DECIMAL(12,4) NOT NULL CHECK (conversion_factor > 0), -- e.g. 1 box = 12 pcs
+    conversion_factor DECIMAL(12,4) NOT NULL CHECK (conversion_factor > 0),
     created_by INT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -167,7 +199,7 @@ CREATE TABLE stock_transaction (
     branch_id INT REFERENCES branch(id),
     product_variant_id INT REFERENCES product_variant(id),
     type VARCHAR(20) CHECK (type IN ('PURCHASE','SALE','TRANSFER','ADJUSTMENT','RETURN')),
-    reference_id INT, -- links invoice/transfer
+    reference_id INT,
     quantity DECIMAL(12,2) NOT NULL,
     direction VARCHAR(3) CHECK (direction IN ('IN','OUT')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -190,9 +222,9 @@ CREATE TABLE product_transfer_items (
 );
 CREATE TABLE invoice (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE, -- INV-001
+    code VARCHAR(20) UNIQUE, 
     branch_id INT REFERENCES branch(id),
-    party_id INT REFERENCES party(id), -- Customer or Supplier
+    party_id INT REFERENCES party(id), 
     type VARCHAR(20) CHECK (type IN ('SALE','PURCHASE','EXPENSE')),
     invoice_date DATE DEFAULT CURRENT_DATE,
     total_amount DECIMAL(12,2) NOT NULL,
@@ -232,7 +264,7 @@ CREATE TABLE journal_entry (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE,
     entry_date DATE DEFAULT CURRENT_DATE,
-    reference_type VARCHAR(50), -- INVOICE, PAYMENT, ADJUSTMENT
+    reference_type VARCHAR(50),
     reference_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -256,10 +288,10 @@ CREATE TABLE activity_log (
 );
 CREATE TABLE setup_data (
     id SERIAL PRIMARY KEY,
-    setup_code VARCHAR(20) UNIQUE,      -- SET-001
-    group_name VARCHAR(50),             -- 'landing_page', 'theme', 'payment_gateway'
-    key_name VARCHAR(100) NOT NULL,     -- 'hero_banner', 'featured_products', 'footer_links'
-    value JSONB NOT NULL,               -- store dynamic structured data
+    setup_code VARCHAR(20) UNIQUE,     
+    group_name VARCHAR(50),      
+    key_name VARCHAR(100) NOT NULL,   
+    value JSONB NOT NULL,    
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
     created_by INT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

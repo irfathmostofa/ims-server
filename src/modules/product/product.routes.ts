@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import {
   addProductBarcode,
   addProductImage,
+  bulkCreateProducts,
   createProduct,
   createProductCat,
   createProductVariant,
@@ -30,7 +31,7 @@ import {
 } from "./product.controller";
 
 export default async function productRoutes(app: FastifyInstance) {
-  //   app.addHook("onRequest", app.authenticate);
+  app.addHook("onRequest", app.authenticate);
   // product category
   app.post("/create-product-cat", createProductCat);
   app.get("/get-product-cat", getProductCat);
@@ -44,28 +45,29 @@ export default async function productRoutes(app: FastifyInstance) {
 
   // Product
   app.post("/products", createProduct);
+  app.post("/bulk-products", bulkCreateProducts);
   app.get("/products", getAllProducts);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);
   app.get("/products/:id", getProductById);
-  app.post("/products/:id", updateProduct);
-  app.post("/products/:id", deleteProduct);
+  app.post("/update- products/:id", updateProduct);
+  app.post("/delete- products/:id", deleteProduct);
 
   // ===== PRODUCT VARIANT ROUTES =====
   app.post("/products/:product_id/variants", createProductVariant);
   app.get("/products/:product_id/variants", getProductVariants);
-  app.post("/variants/:id", updateProductVariant);
-  app.post("/variants/:id", deleteProductVariant);
+  app.post("/update-variants/:id", updateProductVariant);
+  app.post("/delete-variants/:id", deleteProductVariant);
 
   // ===== PRODUCT IMAGE ROUTES =====
   app.post("/products/:product_id/images", addProductImage);
   app.get("/products/:product_id/images", getProductImages);
-  app.post("/images/:id", updateProductImage);
-  app.post("/images/:id", deleteProductImage);
+  app.post("/update-images/:id", updateProductImage);
+  app.post("/delete-images/:id", deleteProductImage);
 
   // ===== PRODUCT BARCODE ROUTES =====
   app.post("/variants/:variant_id/barcodes", addProductBarcode);
   app.get("/variants/:variant_id/barcodes", getProductBarcodes);
-  app.post("/barcodes/:id", updateProductBarcode);
-  app.post("/barcodes/:id", deleteProductBarcode);
+  app.post("/update-barcodes/:id", updateProductBarcode);
+  app.post("/delete-barcodes/:id", deleteProductBarcode);
 }

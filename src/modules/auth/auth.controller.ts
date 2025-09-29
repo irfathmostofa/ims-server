@@ -7,16 +7,27 @@ import { successResponse } from "../../core/utils/response";
 const userModel = new CrudModel("users");
 
 export async function login(req: FastifyRequest, reply: FastifyReply) {
-  const { phone, password } = req.body as any;
+  const { phone, password } = req.body as { phone: string; password: string };
 
   const users = await userModel.findByField("phone", phone);
-  if (!users.length) return reply.code(400).send({ message: "User not found" });
+  if (!users.length) {
+    return reply.code(400).send({ message: "User not found" });
+  }
 
   const user = users[0];
   const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) return reply.code(400).send({ message: "Invalid credentials" });
+  if (!valid) {
+    return reply.code(400).send({ message: "Invalid credentials" });
+  }
 
-  const token = await reply.jwtSign(user);
+  const payload = {
+    id: user.id,
+    phone: user.phone,
+    username: user.username,
+    role_id: user.role_id,
+  };
+
+  const token = await reply.jwtSign(payload);
   reply.send({ token });
 }
 

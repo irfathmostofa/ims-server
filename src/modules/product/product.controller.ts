@@ -3,6 +3,7 @@ import { successResponse } from "../../core/utils/response";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 import {
   productBarcodeModel,
+  productCategoryModel,
   productCatModel,
   productImageModel,
   productModel,
@@ -18,7 +19,9 @@ export async function createProductCat(
 ) {
   try {
     const fields = req.body as Record<string, any>;
-    fields.code = await generatePrefixedId("product_category", "PCAT");
+    fields.created_by = req.user?.id;
+
+    fields.code = await generatePrefixedId("category", "PCAT");
     const newData = await productCatModel.create(fields);
     reply.send(
       successResponse(newData, "Product Category created successfully")
@@ -44,6 +47,7 @@ export async function updateProductCat(
   try {
     const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
+    fields.updated_by = req.user?.id;
     const updated = await productCatModel.update(id, fields);
     reply.send(
       successResponse(updated, "Product Category updated successfully")
@@ -72,6 +76,7 @@ export async function createUOM(req: FastifyRequest, reply: FastifyReply) {
   try {
     const fields = req.body as Record<string, any>;
     fields.code = await generatePrefixedId("uom", "UOM");
+    fields.created_by = req.user?.id;
     const newData = await UomModel.create(fields);
     reply.send(
       successResponse(newData, "Unit Of masurement created successfully")
@@ -94,6 +99,7 @@ export async function updateUOM(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
+    fields.updated_by = req.user?.id;
     const updated = await UomModel.update(id, fields);
     reply.send(
       successResponse(updated, "Unit Of masurement updated successfully")
@@ -118,17 +124,96 @@ export async function deleteUOM(req: FastifyRequest, reply: FastifyReply) {
 // ========== PRODUCT CRUD ==========
 
 export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
   try {
-    const fields = req.body as Record<string, any>;
+    await client.query("BEGIN");
 
-    // Generate product code
-    fields.code = await generatePrefixedId("product", "PRD");
+    const {
+      categories = [],
+      variants = [],
+      images = [],
+      barcodes = [],
+      ...productData
+    } = req.body as Record<string, any>;
 
-    const newProduct = await productModel.create(fields);
+    // ✅ product
+    productData.code = await generatePrefixedId("product", "PROD");
+    if (req.user?.id) productData.created_by = req.user.id;
 
-    reply.send(successResponse(newProduct, "Product created successfully"));
+    const product = await productModel.create(productData);
+
+    // ✅ categories
+    for (const cat of categories) {
+      await productCategoryModel.create({
+        product_id: product.id,
+        category_id: cat.id,
+        is_primary: cat.is_primary || false,
+        created_by: req.user?.id,
+      });
+    }
+
+    // ✅ variants
+    for (const v of variants) {
+      v.code = await generatePrefixedId("product_variant", "VAR");
+      v.product_id = product.id;
+      v.created_by = req.user?.id;
+      const variant = await productVariantModel.create(v);
+
+      // ✅ barcodes under variant
+      const vBarcodes = barcodes.filter((b) => b.variant_code === v.tempCode); // tempCode → mapping from FE
+      for (const b of vBarcodes) {
+        await productBarcodeModel.create({
+          product_variant_id: variant.id,
+          barcode: b.barcode,
+          type: b.type || "EAN13",
+          is_primary: b.is_primary || false,
+          created_by: req.user?.id,
+        });
+      }
+    }
+
+    // ✅ images
+    for (const img of images) {
+      img.code = await generatePrefixedId("product_image", "IMG");
+      img.product_id = product.id;
+      img.created_by = req.user?.id;
+      await productImageModel.create(img);
+    }
+
+    await client.query("COMMIT");
+    reply.send(successResponse(product, "Product created successfully"));
   } catch (err: any) {
+    await client.query("ROLLBACK");
     reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+}
+export async function bulkCreateProducts(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { products } = req.body as { products: Record<string, any>[] };
+    const created: any[] = [];
+
+    for (const p of products) {
+      p.code = await generatePrefixedId("product", "PROD");
+      if (req.user?.id) p.created_by = req.user.id;
+      const product = await productModel.create(p);
+      created.push(product);
+    }
+
+    await client.query("COMMIT");
+    reply.send(successResponse(created, "Bulk products created successfully"));
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 }
 
