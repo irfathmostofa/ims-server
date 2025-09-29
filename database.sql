@@ -187,6 +187,27 @@ CREATE TABLE purchase_order_items (
     subtotal DECIMAL(12,2) GENERATED ALWAYS AS ((quantity * unit_price) - discount) STORED,
     notes TEXT
 );
+CREATE TABLE goods_received_note (
+    id SERIAL PRIMARY KEY,
+    purchase_order_id INT REFERENCES purchase_order(id) ON DELETE CASCADE,
+    grn_code VARCHAR(20) UNIQUE,
+    received_date DATE DEFAULT CURRENT_DATE,
+    received_by INT REFERENCES users(id),
+    status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE grn_items (
+    id SERIAL PRIMARY KEY,
+    grn_id INT REFERENCES goods_received_note(id) ON DELETE CASCADE,
+    product_variant_id INT REFERENCES product_variant(id),
+    ordered_quantity DECIMAL(12,2) NOT NULL,
+    received_quantity DECIMAL(12,2) NOT NULL,
+    discrepancy DECIMAL(12,2) GENERATED ALWAYS AS (ordered_quantity - received_quantity) STORED,
+    notes TEXT
+);
+
 CREATE TABLE inventory_stock (
     id SERIAL PRIMARY KEY,
     branch_id INT REFERENCES branch(id),

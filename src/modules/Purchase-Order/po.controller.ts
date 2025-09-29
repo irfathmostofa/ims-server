@@ -2,7 +2,12 @@ import { FastifyReply, FastifyRequest } from "fastify";
 import { successResponse } from "../../core/utils/response";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 import pool from "../../config/db";
-import { purchaseOrderModel } from "./po.model";
+import {
+  grnItemsModel,
+  grnModel,
+  purchaseOrderItemsModel,
+  purchaseOrderModel,
+} from "./po.model";
 
 // ========== PURCHASE ORDER CRUD ==========
 
@@ -11,7 +16,6 @@ export async function createPurchaseOrder(
   reply: FastifyReply
 ) {
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
 
@@ -20,83 +24,53 @@ export async function createPurchaseOrder(
     // Generate purchase order code
     orderFields.code = await generatePrefixedId("purchase_order", "PO");
 
-    // Calculate totals from items
+    // Calculate totals
     let totalAmount = 0;
-    let totalTaxAmount = 0;
-    let totalDiscountAmount = 0;
+    let totalTax = 0;
+    let totalDiscount = 0;
 
-    if (items && items.length > 0) {
+    if (items?.length) {
       for (const item of items) {
         const subtotal = item.quantity * item.unit_price - (item.discount || 0);
-        const taxAmount = (subtotal * (item.tax_rate || 0)) / 100;
-
+        const tax = (subtotal * (item.tax_rate || 0)) / 100;
         totalAmount += subtotal;
-        totalTaxAmount += taxAmount;
-        totalDiscountAmount += item.discount || 0;
+        totalTax += tax;
+        totalDiscount += item.discount || 0;
       }
     }
 
     orderFields.total_amount = totalAmount;
-    orderFields.tax_amount = totalTaxAmount;
-    orderFields.discount_amount = totalDiscountAmount;
+    orderFields.tax_amount = totalTax;
+    orderFields.discount_amount = totalDiscount;
+    orderFields.status = orderFields.status || "PENDING";
 
-    // Create purchase order
-    const orderQuery = `
-      INSERT INTO purchase_order (code, branch_id, supplier_id, order_date, expected_date, delivery_date, 
-                                 total_amount, tax_amount, discount_amount, status, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING *
-    `;
+    // ✅ Use CRUD model to create PO
+    const newOrder = await purchaseOrderModel.create(orderFields);
 
-    const orderValues = [
-      orderFields.code,
-      orderFields.branch_id,
-      orderFields.supplier_id,
-      orderFields.order_date || new Date(),
-      orderFields.expected_date,
-      orderFields.delivery_date,
-      orderFields.total_amount,
-      orderFields.tax_amount,
-      orderFields.discount_amount,
-      orderFields.status || "PENDING",
-      orderFields.notes,
-      orderFields.created_by,
-    ];
-
-    const {
-      rows: [newOrder],
-    } = await client.query(orderQuery, orderValues);
-
-    // Add items if provided
     const orderItems = [];
-    if (items && items.length > 0) {
+    if (items?.length) {
       for (const item of items) {
-        const itemQuery = `
-          INSERT INTO purchase_order_items (order_id, product_variant_id, quantity, unit_price, discount, tax_rate, notes)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-          RETURNING *
-        `;
-
-        const {
-          rows: [newItem],
-        } = await client.query(itemQuery, [
-          newOrder.id,
-          item.product_variant_id,
-          item.quantity,
-          item.unit_price,
-          item.discount || 0,
-          item.tax_rate || 0,
-          item.notes,
-        ]);
-
+        const newItem = await purchaseOrderItemsModel.create({
+          order_id: newOrder.id,
+          product_variant_id: item.product_variant_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          discount: item.discount || 0,
+          tax_rate: item.tax_rate || 0,
+          notes: item.notes || null,
+        });
         orderItems.push(newItem);
       }
     }
 
     await client.query("COMMIT");
 
-    const result = { ...newOrder, items: orderItems };
-    reply.send(successResponse(result, "Purchase order created successfully"));
+    reply.send(
+      successResponse(
+        { ...newOrder, items: orderItems },
+        "Purchase order created successfully"
+      )
+    );
   } catch (err: any) {
     await client.query("ROLLBACK");
     reply.status(400).send({ success: false, message: err.message });
@@ -261,105 +235,43 @@ export async function updatePurchaseOrder(
   reply: FastifyReply
 ) {
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
 
     const { id } = req.params as { id: string };
     const { items, ...orderFields } = req.body as any;
 
-    // Check if order exists and is editable
-    const {
-      rows: [existingOrder],
-    } = await client.query("SELECT * FROM purchase_order WHERE id = $1", [id]);
-
-    if (!existingOrder) {
-      throw new Error("Purchase order not found");
-    }
-
-    if (
-      existingOrder.status === "RECEIVED" ||
-      existingOrder.status === "CLOSED"
-    ) {
+    const existingOrder = await purchaseOrderModel.findById(id);
+    if (!existingOrder) throw new Error("Purchase order not found");
+    if (["RECEIVED", "CLOSED"].includes(existingOrder.status)) {
       throw new Error("Cannot update received or closed purchase order");
     }
 
-    // Update order fields
     if (Object.keys(orderFields).length > 0) {
-      const updateFields = Object.keys(orderFields)
-        .filter((key) => key !== "net_amount") // Skip computed field
-        .map((key, index) => `${key} = $${index + 2}`)
-        .join(", ");
-
-      if (updateFields) {
-        const updateValues = [id, ...Object.values(orderFields)];
-        await client.query(
-          `UPDATE purchase_order SET ${updateFields} WHERE id = $1`,
-          updateValues
-        );
-      }
+      await purchaseOrderModel.update(parseInt(id), orderFields);
     }
 
-    // Update items if provided
     if (items) {
-      // Delete existing items
-      await client.query(
-        "DELETE FROM purchase_order_items WHERE order_id = $1",
-        [id]
-      );
-
-      // Add new items
+      // Delete existing items and add new ones
+      await pool.query("DELETE FROM purchase_order_items WHERE order_id = $1", [
+        id,
+      ]);
       for (const item of items) {
-        await client.query(
-          `INSERT INTO purchase_order_items (order_id, product_variant_id, quantity, unit_price, discount, tax_rate, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            id,
-            item.product_variant_id,
-            item.quantity,
-            item.unit_price,
-            item.discount || 0,
-            item.tax_rate || 0,
-            item.notes,
-          ]
-        );
+        await purchaseOrderItemsModel.create({
+          order_id: parseInt(id),
+          product_variant_id: item.product_variant_id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          discount: item.discount || 0,
+          tax_rate: item.tax_rate || 0,
+          notes: item.notes || null,
+        });
       }
-
-      // Recalculate totals
-      const {
-        rows: [totals],
-      } = await client.query(
-        `
-        SELECT 
-          SUM(subtotal) as total_amount,
-          SUM(subtotal * tax_rate / 100) as tax_amount,
-          SUM(discount) as discount_amount
-        FROM purchase_order_items 
-        WHERE order_id = $1
-      `,
-        [id]
-      );
-
-      await client.query(
-        `UPDATE purchase_order 
-         SET total_amount = $1, tax_amount = $2, discount_amount = $3 
-         WHERE id = $4`,
-        [
-          totals.total_amount || 0,
-          totals.tax_amount || 0,
-          totals.discount_amount || 0,
-          id,
-        ]
-      );
     }
 
     await client.query("COMMIT");
 
-    // Fetch updated order
-    const {
-      rows: [updatedOrder],
-    } = await client.query("SELECT * FROM purchase_order WHERE id = $1", [id]);
-
+    const updatedOrder = await purchaseOrderModel.findById(id);
     reply.send(
       successResponse(updatedOrder, "Purchase order updated successfully")
     );
@@ -733,6 +645,242 @@ export async function getPendingOrders(
     const { rows } = await pool.query(query, values);
 
     reply.send(successResponse(rows, "Pending orders retrieved successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { purchase_order_id, received_by, items, notes } = req.body as any;
+
+    // Validate purchase order existence
+    const { rows: poRows } = await client.query(
+      "SELECT * FROM purchase_order WHERE id = $1",
+      [purchase_order_id]
+    );
+    if (poRows.length === 0) throw new Error("Purchase order not found");
+
+    // Generate GRN code
+    const grn_code = await generatePrefixedId("goods_received_note", "GRN");
+
+    // Create GRN
+    const grn = await grnModel.create({
+      purchase_order_id,
+      received_by,
+      grn_code,
+      notes,
+    });
+
+    // Add GRN items
+    const grnItems = [];
+    for (const item of items) {
+      // Get ordered quantity from PO
+      const {
+        rows: [poItem],
+      } = await client.query(
+        "SELECT * FROM purchase_order_items WHERE id = $1 AND order_id = $2",
+        [item.po_item_id, purchase_order_id]
+      );
+      if (!poItem) throw new Error(`PO item ${item.po_item_id} not found`);
+
+      const newItem = await grnItemsModel.create({
+        grn_id: grn.id,
+        product_variant_id: poItem.product_variant_id,
+        ordered_quantity: poItem.quantity,
+        received_quantity: item.received_quantity,
+        notes: item.notes || null,
+      });
+
+      // Update received quantity in PO item
+      await client.query(
+        "UPDATE purchase_order_items SET received_quantity = received_quantity + $1 WHERE id = $2",
+        [item.received_quantity, poItem.id]
+      );
+
+      grnItems.push(newItem);
+
+      // Update inventory stock
+      await client.query(
+        `
+        INSERT INTO inventory_stock (branch_id, product_variant_id, quantity)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (branch_id, product_variant_id, batch_id, location_id)
+        DO UPDATE SET 
+          quantity = inventory_stock.quantity + $3,
+          last_updated = CURRENT_TIMESTAMP
+      `,
+        [poRows[0].branch_id, poItem.product_variant_id, item.received_quantity]
+      );
+    }
+
+    // Update PO status
+    const { rows: totals } = await client.query(
+      "SELECT SUM(quantity) as total_ordered, SUM(received_quantity) as total_received FROM purchase_order_items WHERE order_id = $1",
+      [purchase_order_id]
+    );
+
+    const newStatus =
+      parseFloat(totals[0].total_received || 0) >=
+      parseFloat(totals[0].total_ordered || 0)
+        ? "RECEIVED"
+        : "PARTIAL";
+
+    await client.query(
+      "UPDATE purchase_order SET status = $1, delivery_date = CURRENT_DATE WHERE id = $2",
+      [newStatus, purchase_order_id]
+    );
+
+    await client.query("COMMIT");
+
+    reply.send(
+      successResponse(
+        { ...grn, items: grnItems, po_status: newStatus },
+        "GRN created successfully"
+      )
+    );
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+}
+export async function getGRNById(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { id } = req.params as { id: string };
+
+    const grn = await grnModel.findById(id);
+    if (!grn) throw new Error("GRN not found");
+
+    const items = await grnItemsModel.findByField("grn_id", id);
+
+    reply.send(
+      successResponse({ ...grn, items }, "GRN retrieved successfully")
+    );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function updateGRN(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { id } = req.params as { id: string };
+    const { items, notes, status } = req.body as any;
+
+    const grn = await grnModel.findById(id);
+    if (!grn) throw new Error("GRN not found");
+    if (grn.status === "APPROVED")
+      throw new Error("Cannot update approved GRN");
+
+    // Update GRN fields
+    await grnModel.update(parseInt(id), { notes, status });
+
+    if (items?.length) {
+      // Delete existing items
+      await pool.query("DELETE FROM grn_items WHERE grn_id = $1", [id]);
+
+      for (const item of items) {
+        // Re-add items
+        const newItem = await grnItemsModel.create({
+          grn_id: parseInt(id),
+          product_variant_id: item.product_variant_id,
+          ordered_quantity: item.ordered_quantity,
+          received_quantity: item.received_quantity,
+          notes: item.notes || null,
+        });
+      }
+    }
+
+    await client.query("COMMIT");
+
+    const updatedGRN = await grnModel.findById(id);
+    const grnItems = await grnItemsModel.findByField("grn_id", id);
+
+    reply.send(
+      successResponse(
+        { ...updatedGRN, items: grnItems },
+        "GRN updated successfully"
+      )
+    );
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+}
+export async function updateGRNStatus(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.params as { id: string };
+    const { status } = req.body as { status: "APPROVED" | "REJECTED" };
+
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      throw new Error("Invalid status. Must be APPROVED or REJECTED");
+    }
+
+    const grn = await grnModel.findById(id);
+    if (!grn) throw new Error("GRN not found");
+    if (grn.status === "APPROVED" || grn.status === "REJECTED") {
+      throw new Error("GRN already finalized");
+    }
+
+    await grnModel.update(parseInt(id), { status });
+
+    reply.send(
+      successResponse(
+        { ...grn, status },
+        `GRN ${status.toLowerCase()} successfully`
+      )
+    );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function deleteGRN(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { id } = req.params as { id: string };
+
+    const grn = await grnModel.findById(id);
+    if (!grn) throw new Error("GRN not found");
+    if (grn.status === "APPROVED") {
+      throw new Error("Cannot delete approved GRN");
+    }
+
+    await grnModel.delete(parseInt(id));
+    reply.send(successResponse(null, "GRN deleted successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function listGRNs(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      purchase_order_id,
+    } = req.query as any;
+    const filters: Record<string, any> = {};
+
+    if (status) filters.status = status;
+    if (purchase_order_id) filters.purchase_order_id = purchase_order_id;
+
+    const grns = await grnModel.findWithPagination(
+      parseInt(page),
+      parseInt(limit),
+      filters
+    );
+
+    reply.send(successResponse(grns, "GRNs retrieved successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
