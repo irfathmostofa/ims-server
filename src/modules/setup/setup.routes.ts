@@ -12,6 +12,16 @@ import {
   deleteBranche,
   updateRole,
   deleteRole,
+  createSetupData,
+  bulkCreateSetupData,
+  getAllSetupData,
+  getGroupedSetupData,
+  getSetupByKey,
+  getSetupData,
+  updateSetupData,
+  deleteSetupData,
+  getActivityLogs,
+  getActivityStats,
 } from "./setup.controller";
 
 export default async function setupRoutes(app: FastifyInstance) {
@@ -33,4 +43,16 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.get("/get-roles", getRoles);
   app.post("/update-roles/:id", updateRole);
   app.post("/delete-roles", deleteRole);
+  // activityLog
+  app.get("/", getActivityLogs);
+  app.get("/stats", getActivityStats);
+  // setupData
+  app.post("/", createSetupData);
+  app.post("/bulk", bulkCreateSetupData);
+  app.get("/", getAllSetupData);
+  app.get("/grouped", getGroupedSetupData);
+  app.get("/by-key", getSetupByKey);
+  app.get("/:id", getSetupData);
+  app.post("/:id", updateSetupData);
+  app.post("/:id", deleteSetupData);
 }

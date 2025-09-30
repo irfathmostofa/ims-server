@@ -30,8 +30,14 @@ export class CrudModel {
     }
   }
 
-  // ✅ Check duplicates
-  private async checkDuplicates(data: Record<string, any>, excludeId?: number) {
+  // ✅ Check duplicates (with transaction support)
+  private async checkDuplicates(
+    data: Record<string, any>,
+    excludeId?: number,
+    client?: any
+  ) {
+    const queryRunner = client || pool;
+
     for (const field of this.uniqueFields) {
       if (!(field in data)) continue;
 
@@ -43,44 +49,49 @@ export class CrudModel {
         values.push(excludeId);
       }
 
-      const { rows } = await pool.query(query, values);
+      const { rows } = await queryRunner.query(query, values);
       if (rows.length > 0) {
         throw new Error(`${field} "${data[field]}" already exists`);
       }
     }
   }
 
-  async findAll() {
-    const { rows } = await pool.query(`SELECT * FROM ${this.table}`);
+  async findAll(client?: any) {
+    const queryRunner = client || pool;
+    const { rows } = await queryRunner.query(`SELECT * FROM ${this.table}`);
     return rows;
   }
 
-  async findById(id: any) {
-    const { rows } = await pool.query(
+  async findById(id: any, client?: any) {
+    const queryRunner = client || pool;
+    const { rows } = await queryRunner.query(
       `SELECT * FROM ${this.table} WHERE id = $1`,
       [id]
     );
     return rows[0];
   }
 
-  async findByField(field: string, value: any) {
-    const { rows } = await pool.query(
+  async findByField(field: string, value: any, client?: any) {
+    const queryRunner = client || pool;
+    const { rows } = await queryRunner.query(
       `SELECT * FROM ${this.table} WHERE ${field} = $1`,
       [value]
     );
     return rows;
   }
 
-  async create(data: Record<string, any>) {
+  async create(data: Record<string, any>, client?: any) {
+    const queryRunner = client || pool;
+
     const sanitized = this.sanitizeData(data);
     this.validateRequired(sanitized);
-    await this.checkDuplicates(sanitized);
+    await this.checkDuplicates(sanitized, undefined, queryRunner);
 
     const keys = Object.keys(sanitized).join(", ");
     const values = Object.values(sanitized);
     const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
 
-    const { rows } = await pool.query(
+    const { rows } = await queryRunner.query(
       `INSERT INTO ${this.table} (${keys}) VALUES (${placeholders}) RETURNING *`,
       values
     );
@@ -88,16 +99,23 @@ export class CrudModel {
     return rows[0];
   }
 
-  async update(id: number, data: Record<string, any>) {
+  async update(id: number, data: Record<string, any>, client?: any) {
+    const queryRunner = client || pool;
+
     const sanitized = this.sanitizeData(data);
-    this.validateRequired(sanitized);
-    await this.checkDuplicates(sanitized, id);
+    // Don't validate required fields on update (allow partial updates)
+    await this.checkDuplicates(sanitized, id, queryRunner);
 
     const keys = Object.keys(sanitized);
     const values = Object.values(sanitized);
+
+    if (keys.length === 0) {
+      throw new Error("No fields to update");
+    }
+
     const setClause = keys.map((key, i) => `${key} = $${i + 1}`).join(", ");
 
-    const { rows } = await pool.query(
+    const { rows } = await queryRunner.query(
       `UPDATE ${this.table} SET ${setClause} WHERE id = $${
         keys.length + 1
       } RETURNING *`,
@@ -107,8 +125,10 @@ export class CrudModel {
     return rows[0];
   }
 
-  async delete(id: number) {
-    const { rows } = await pool.query(
+  async delete(id: number, client?: any) {
+    const queryRunner = client || pool;
+
+    const { rows } = await queryRunner.query(
       `DELETE FROM ${this.table} WHERE id = $1 RETURNING *`,
       [id]
     );
@@ -118,8 +138,10 @@ export class CrudModel {
   async findWithPagination(
     page: number = 1,
     limit: number = 10,
-    filters: Record<string, any> = {}
+    filters: Record<string, any> = {},
+    client?: any
   ) {
+    const queryRunner = client || pool;
     const offset = (page - 1) * limit;
     const values: any[] = [];
     let i = 1;
@@ -141,7 +163,7 @@ export class CrudModel {
     `;
     values.push(limit, offset);
 
-    const { rows } = await pool.query(query, values);
+    const { rows } = await queryRunner.query(query, values);
     return rows;
   }
 
@@ -150,10 +172,12 @@ export class CrudModel {
     startDate: string,
     endDate: string,
     page: number = 1,
-    limit: number = 10
+    limit: number = 10,
+    client?: any
   ) {
+    const queryRunner = client || pool;
     const offset = (page - 1) * limit;
-    const { rows } = await pool.query(
+    const { rows } = await queryRunner.query(
       `
       SELECT * FROM ${this.table}
       WHERE ${dateField} BETWEEN $1 AND $2
@@ -164,5 +188,24 @@ export class CrudModel {
     );
 
     return rows;
+  }
+
+  async count(filters: Record<string, any> = {}, client?: any) {
+    const queryRunner = client || pool;
+    const values: any[] = [];
+    let i = 1;
+
+    let whereClause = "";
+    if (Object.keys(filters).length > 0) {
+      const conditions = Object.entries(filters).map(([key, value]) => {
+        values.push(value);
+        return `${key} = $${i++}`;
+      });
+      whereClause = `WHERE ${conditions.join(" AND ")}`;
+    }
+
+    const query = `SELECT COUNT(*) FROM ${this.table} ${whereClause}`;
+    const { rows } = await queryRunner.query(query, values);
+    return parseInt(rows[0].count);
   }
 }
