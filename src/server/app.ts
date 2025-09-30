@@ -10,6 +10,9 @@ import setupRoutes from "../modules/setup/setup.routes";
 import productRoutes from "../modules/product/product.routes";
 import partyRoutes from "../modules/party/party.routes";
 import { inventoryRoutes } from "../modules/inventory/inventory.routes";
+import salesRoutes from "../modules/sales/sale.routes";
+import poRoutes from "../modules/Purchase-Order/po.routes";
+import coaRoutes from "../modules/coa/coa.routes";
 
 dotenv.config();
 
@@ -30,4 +33,7 @@ app.register(authRoutes, { prefix: "/auth" });
 app.register(productRoutes, { prefix: "/product" });
 app.register(partyRoutes, { prefix: "/party" });
 app.register(inventoryRoutes, { prefix: "/inventory" });
+app.register(salesRoutes, { prefix: "/sales" });
+app.register(poRoutes, { prefix: "/po" });
+app.register(coaRoutes, { prefix: "/coa" });
 export default app;

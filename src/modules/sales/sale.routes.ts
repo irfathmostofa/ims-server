@@ -11,35 +11,35 @@ import {
   updateInvoice,
 } from "./sale.controller";
 
-export default async function invoiceRoutes(fastify: FastifyInstance) {
+export default async function salesRoutes(app: FastifyInstance) {
   // ===== INVOICE ROUTES =====
 
-  fastify.post("/invoices", createInvoice);
+  app.post("/create-invoices", createInvoice);
 
   /**
    * Get all invoices with filters and pagination
    * GET /api/invoices?page=1&limit=10&type=SALE&status=PAID&branch_id=1&party_id=5&from_date=2025-01-01&to_date=2025-12-31
    */
-  fastify.get("/invoices", getAllInvoices);
+  app.get("/get-All-invoices", getAllInvoices);
 
   /**
    * Get single invoice by ID with items and payments
    * GET /api/invoices/:id
    */
-  fastify.get("/invoices/:id", getInvoice);
+  app.get("/get-invoices/:id", getInvoice);
 
   /**
    * Update invoice details and/or items
    * PUT /api/invoices/:id
    * Body: { branch_id?, party_id?, invoice_date?, items[]? }
    */
-  fastify.put("/invoices/:id", updateInvoice);
+  app.post("/update-invoices/:id", updateInvoice);
 
   /**
    * Delete invoice (cascades to items and payments)
    * DELETE /api/invoices/:id
    */
-  fastify.delete("/invoices/:id", deleteInvoice);
+  app.post("/delete-invoices/:id", deleteInvoice);
 
   // ===== PAYMENT ROUTES =====
 
@@ -48,19 +48,19 @@ export default async function invoiceRoutes(fastify: FastifyInstance) {
    * POST /api/invoices/:id/payments
    * Body: { method, amount, reference_no? }
    */
-  fastify.post("/invoices/:id/payments", addPayment);
+  app.post("/create-invoices/:id/payments", addPayment);
 
   /**
    * Get all payments for an invoice
    * GET /api/invoices/:id/payments
    */
-  fastify.get("/invoices/:id/payments", getInvoicePayments);
+  app.get("/get-invoices/:id/payments", getInvoicePayments);
 
   /**
    * Delete a payment
    * DELETE /api/payments/:id
    */
-  fastify.delete("/payments/:id", deletePayment);
+  app.post("/delete-payments/:id", deletePayment);
 
   // ===== REPORTING ROUTES =====
 
@@ -68,7 +68,7 @@ export default async function invoiceRoutes(fastify: FastifyInstance) {
    * Get invoice summary with filters
    * GET /api/invoices/summary?type=SALE&branch_id=1&from_date=2025-01-01&to_date=2025-12-31
    */
-  fastify.get("/invoices/summary", getInvoiceSummary);
+  app.get("/get-invoices/summary", getInvoiceSummary);
 }
 
 // ===== USAGE IN MAIN APP =====
