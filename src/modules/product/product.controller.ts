@@ -1,6 +1,9 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { successResponse } from "../../core/utils/response";
-import { generatePrefixedId } from "../../core/models/idGenerator";
+import {
+  generatePrefixedId,
+  generateRandomBarcode,
+} from "../../core/models/idGenerator";
 import {
   productBarcodeModel,
   productCategoryModel,
@@ -132,7 +135,6 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
       categories = [],
       variants = [],
       images = [],
-      barcodes = [],
       ...productData
     } = req.body as Record<string, any>;
 
@@ -152,32 +154,22 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
       });
     }
 
-    // ✅ variants
+    // ✅ variants + auto barcodes
     for (const v of variants) {
       v.code = await generatePrefixedId("product_variant", "VAR");
       v.product_id = product.id;
       v.created_by = (req.user as { id: number }).id;
       const variant = await productVariantModel.create(v);
 
-      // ✅ barcodes under variant
-      const vBarcodes = barcodes.filter(
-        (b: {
-          variant_code: string;
-          barcode: string;
-          type?: string;
-          is_primary?: boolean;
-        }) => b.variant_code === v.tempCode
-      );
-
-      for (const b of vBarcodes) {
-        await productBarcodeModel.create({
-          product_variant_id: variant.id,
-          barcode: b.barcode,
-          type: b.type || "EAN13",
-          is_primary: b.is_primary || false,
-          created_by: (req.user as { id: number }).id,
-        });
-      }
+      // ✅ auto-generate barcode for this variant
+      const generatedBarcode = await generateRandomBarcode(v.code); // create unique code
+      await productBarcodeModel.create({
+        product_variant_id: variant.id,
+        barcode: generatedBarcode,
+        type: "EAN13",
+        is_primary: true,
+        created_by: (req.user as { id: number }).id,
+      });
     }
 
     // ✅ images
@@ -197,6 +189,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
     client.release();
   }
 }
+
 export async function bulkCreateProducts(
   req: FastifyRequest,
   reply: FastifyReply
