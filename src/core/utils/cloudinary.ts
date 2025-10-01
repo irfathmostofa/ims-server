@@ -20,7 +20,6 @@ export async function imageUploader(
       }
     );
 
-    // If file is a buffer, convert to stream
     if (Buffer.isBuffer(file)) {
       streamifier.createReadStream(file).pipe(uploadStream);
     } else {

@@ -15,6 +15,7 @@ export async function generatePrefixedId(
   const maxId = rows[0].max_id ?? 0;
   return `${prefix}-${String(maxId + 1).padStart(padLength, "0")}`;
 }
+
 export function generateRandomBarcode(prefix = "EAN") {
   // EAN13 usually has 13 digits
   const randomNumber = Math.floor(100000000000 + Math.random() * 900000000000);

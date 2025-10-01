@@ -2,7 +2,7 @@ import "fastify";
 
 declare module "fastify" {
   interface FastifyInstance {
-    authenticate: any; // keep as-is or type it stricter
+    authenticate: any;
   }
 
   interface FastifyRequest {

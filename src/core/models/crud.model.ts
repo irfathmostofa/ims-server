@@ -8,7 +8,7 @@ export class CrudModel {
     private optionalFields: string[] = []
   ) {}
 
-  // ✅ Sanitize data: empty string → null, remove undefined
+  //Sanitize data: empty string → null, remove undefined
   private sanitizeData(data: Record<string, any>) {
     return Object.fromEntries(
       Object.entries(data)
@@ -20,7 +20,7 @@ export class CrudModel {
     );
   }
 
-  // ✅ Validate required fields
+  //Validate required fields
   private validateRequired(data: Record<string, any>) {
     const missingFields = this.requiredFields.filter(
       (field) => data[field] === undefined || data[field] === null
@@ -30,7 +30,7 @@ export class CrudModel {
     }
   }
 
-  // ✅ Check duplicates (with transaction support)
+  //Check duplicates (with transaction support)
   private async checkDuplicates(
     data: Record<string, any>,
     excludeId?: number,
