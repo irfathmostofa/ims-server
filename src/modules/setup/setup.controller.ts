@@ -388,7 +388,6 @@ export async function getActivityStats(
 export async function createSetupData(
   req: FastifyRequest<{
     Body: {
-      setup_code?: string;
       group_name?: string;
       key_name: string;
       value: any;
@@ -398,12 +397,12 @@ export async function createSetupData(
   reply: FastifyReply
 ) {
   try {
-    const { setup_code, group_name, key_name, value, status } = req.body;
-
+    const { group_name, key_name, value, status } = req.body;
+    const setup_code = await generatePrefixedId("setup_data", "STD");
     const setupData = await setupDataModel.create({
-      setup_code: setup_code || null,
+      code: setup_code || null,
       group_name: group_name || null,
-      key_name,
+      key_name: key_name,
       value: JSON.stringify(value),
       status: status || "A",
       created_by: (req.user as any)?.id,
@@ -411,18 +410,14 @@ export async function createSetupData(
 
     // Log activity
     await autoLogActivity(
-      req,
+      (req.user as any)?.id,
       "CREATE",
       "setup_data",
       setupData.id,
       `Created setup: ${key_name}`
     );
 
-    reply.send({
-      success: true,
-      data: setupData,
-      message: "Setup data created successfully",
-    });
+    reply.send(successResponse(setupData, "Setup data created successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
@@ -482,8 +477,8 @@ export async function getAllSetupData(
     const setupResult = await pool.query(
       `SELECT 
         sd.*,
-        u.name as created_by_name,
-        u2.name as updated_by_name
+        u.username as created_by_name,
+        u2.username as updated_by_name
       FROM setup_data sd
       LEFT JOIN users u ON sd.created_by = u.id
       LEFT JOIN users u2 ON sd.updated_by = u2.id
@@ -703,35 +698,28 @@ export async function updateSetupData(
  * Delete Setup Data
  */
 export async function deleteSetupData(
-  req: FastifyRequest<{ Params: { id: string } }>,
+  req: FastifyRequest,
   reply: FastifyReply
 ) {
   try {
-    const setupId = parseInt(req.params.id);
-
-    const setup = await setupDataModel.findById(setupId);
+    const { id } = req.body as { id: number };
+    const setup = await setupDataModel.findById(id);
     if (!setup) {
       return reply.status(404).send({
         success: false,
         message: "Setup data not found",
       });
     }
-
-    await setupDataModel.delete(setupId);
-
-    // Log activity
+    const deleted = await setupDataModel.delete(id);
     await autoLogActivity(
-      req,
+      (req.user as any)?.id,
       "DELETE",
       "setup_data",
-      setupId,
+      id,
       `Deleted setup: ${setup.key_name}`
     );
 
-    reply.send({
-      success: true,
-      message: "Setup data deleted successfully",
-    });
+    reply.send(successResponse(deleted, "Setup data deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }

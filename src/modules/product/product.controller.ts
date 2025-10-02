@@ -239,7 +239,75 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { category_id, search } = req.query as {
+      category_id?: string;
+      search?: string;
+    };
 
+    let query = `
+      SELECT 
+          p.id AS product_id,
+          pv.id AS variant_id,
+          COALESCE(pv.code, p.code) AS code,
+          p.name,
+          p.description,
+          (p.selling_price + COALESCE(pv.additional_price,0)) AS selling_price,
+          
+          (SELECT u.symbol FROM uom u WHERE u.id = p.uom_id) AS symbol,
+
+          (SELECT c.name 
+           FROM product_categories pc 
+           JOIN category c ON c.id = pc.category_id
+           WHERE pc.product_id = p.id 
+           LIMIT 1) AS category,
+
+          COALESCE((
+              SELECT SUM(st.quantity) 
+              FROM inventory_stock st 
+              WHERE st.product_variant_id = pv.id
+          ), 0) AS stock_qty
+
+      FROM product p
+      LEFT JOIN product_variant pv ON pv.product_id = p.id
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    // Category filter
+    if (category_id) {
+      query += ` AND EXISTS (
+        SELECT 1 FROM product_categories pc 
+        WHERE pc.product_id = p.id AND pc.category_id = $${paramIndex}
+      )`;
+      params.push(category_id);
+      paramIndex++;
+    }
+
+    // Search filter
+    if (search) {
+      query += ` AND (
+        p.name ILIKE $${paramIndex} OR 
+        p.code ILIKE $${paramIndex} OR 
+        pv.code ILIKE $${paramIndex}
+      )`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY p.id, pv.id`;
+
+    const { rows } = await pool.query(query, params);
+
+    return reply.send({ success: true, data: rows });
+  } catch (error) {
+    console.error("getProductsFlat error:", error);
+    return reply.status(500).send({ success: false, message: "Server error" });
+  }
+}
 export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = req.params as { id: string };
@@ -248,13 +316,23 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
     const query = `
       SELECT 
         p.*,
-        pc.name as category_name,
-        u.name as uom_name,
-        u.symbol as uom_symbol
+        u.name AS uom_name,
+        u.symbol AS uom_symbol,
+        COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', c.id,
+              'name', c.name,
+              'is_primary', pc.is_primary
+            )
+          ) FILTER (WHERE c.id IS NOT NULL), '[]'
+        ) AS categories
       FROM product p
-      LEFT JOIN product_category pc ON p.category_id = pc.id
       LEFT JOIN uom u ON p.uom_id = u.id
+      LEFT JOIN product_categories pc ON p.id = pc.product_id
+      LEFT JOIN category c ON pc.category_id = c.id
       WHERE p.id = $1
+      GROUP BY p.id, u.id;
     `;
 
     const { rows } = await pool.query(query, [id]);
@@ -298,21 +376,110 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
   try {
     const { id } = req.params as { id: string };
     const fields = req.body as Record<string, any>;
 
-    const updatedProduct = await productModel.update(parseInt(id), fields);
+    await client.query("BEGIN");
 
+    // 1. Update main product fields
+    const updatedProduct = await productModel.update(parseInt(id), fields);
     if (!updatedProduct) {
+      await client.query("ROLLBACK");
       return reply
         .status(404)
         .send({ success: false, message: "Product not found" });
     }
 
-    reply.send(successResponse(updatedProduct, "Product updated successfully"));
+    // 2. Handle categories
+    if (fields.categories && Array.isArray(fields.categories)) {
+      // Remove existing categories
+      await client.query(
+        "DELETE FROM product_categories WHERE product_id = $1",
+        [id]
+      );
+      // Insert new categories
+      for (const cat of fields.categories) {
+        await productCategoryModel.create({
+          product_id: id,
+          category_id: cat.id,
+          is_primary: cat.is_primary || false,
+          created_by: fields.updated_by || null,
+        });
+      }
+    }
+
+    // 3. Handle variants
+    if (fields.variants && Array.isArray(fields.variants)) {
+      for (const variant of fields.variants) {
+        if (variant.id) {
+          await productVariantModel.update(variant.id, variant);
+        } else {
+          await productVariantModel.create({
+            product_id: id,
+            ...variant,
+          });
+        }
+      }
+    }
+
+    // 4. Handle images
+    if (fields.images && Array.isArray(fields.images)) {
+      for (const image of fields.images) {
+        if (image.id) {
+          // if primary, reset others
+          if (image.is_primary) {
+            await client.query(
+              "UPDATE product_image SET is_primary = FALSE WHERE product_id = $1 AND id != $2",
+              [id, image.id]
+            );
+          }
+          await productImageModel.update(image.id, image);
+        } else {
+          await productImageModel.create({
+            product_id: id,
+            ...image,
+          });
+        }
+      }
+    }
+
+    // 5. Handle barcodes
+    if (fields.barcodes && Array.isArray(fields.barcodes)) {
+      for (const group of fields.barcodes) {
+        for (const barcode of group.barcodes) {
+          if (barcode.id) {
+            if (barcode.is_primary) {
+              await client.query(
+                "UPDATE product_barcode SET is_primary = FALSE WHERE product_variant_id = $1 AND id != $2",
+                [group.variant_id, barcode.id]
+              );
+            }
+            await productBarcodeModel.update(barcode.id, barcode);
+          } else {
+            await productBarcodeModel.create({
+              product_variant_id: group.variant_id,
+              ...barcode,
+            });
+          }
+        }
+      }
+    }
+
+    await client.query("COMMIT");
+
+    reply.send(
+      successResponse(
+        updatedProduct,
+        "Product updated successfully (with variants, categories, barcodes, and images)"
+      )
+    );
   } catch (err: any) {
+    await client.query("ROLLBACK");
     reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
   }
 }
 

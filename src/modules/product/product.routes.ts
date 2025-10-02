@@ -19,6 +19,7 @@ import {
   getProductById,
   getProductCat,
   getProductImages,
+  getProductsPOS,
   getProductVariants,
   getUOM,
   searchProducts,
@@ -47,11 +48,12 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post("/products", createProduct);
   app.post("/bulk-products", bulkCreateProducts);
   app.get("/products", getAllProducts);
+  app.get("/get-pos-products", getProductsPOS);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);
   app.get("/products/:id", getProductById);
-  app.post("/update- products/:id", updateProduct);
-  app.post("/delete- products/:id", deleteProduct);
+  app.post("/update-products/:id", updateProduct);
+  app.post("/delete-products/:id", deleteProduct);
 
   // ===== PRODUCT VARIANT ROUTES =====
   app.post("/products/:product_id/variants", createProductVariant);

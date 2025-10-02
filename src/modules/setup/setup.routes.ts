@@ -54,5 +54,5 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.get("/get-setup-data-by-key", getSetupByKey);
   app.get("/get-setup-data-by/:id", getSetupData);
   app.post("/update-setup-data/:id", updateSetupData);
-  app.post("/delete-setup-data/:id", deleteSetupData);
+  app.post("/delete-setup-data", deleteSetupData);
 }
