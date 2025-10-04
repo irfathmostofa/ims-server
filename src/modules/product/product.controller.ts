@@ -242,7 +242,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
 export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { category_id, search } = req.query as {
-      category_id?: string;
+      category_id?: number;
       search?: string;
     };
 

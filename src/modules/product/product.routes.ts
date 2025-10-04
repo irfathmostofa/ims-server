@@ -48,7 +48,7 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post("/products", createProduct);
   app.post("/bulk-products", bulkCreateProducts);
   app.get("/products", getAllProducts);
-  app.get("/get-pos-products", getProductsPOS);
+  app.get("/get-pos-products/:category_id/:search", getProductsPOS);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);
   app.get("/products/:id", getProductById);

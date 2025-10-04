@@ -13,7 +13,7 @@ import {
 
 export default async function salesRoutes(app: FastifyInstance) {
   // ===== INVOICE ROUTES =====
-
+app.addHook("onRequest", app.authenticate);
   app.post("/create-invoices", createInvoice);
 
   /**

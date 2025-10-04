@@ -87,6 +87,12 @@ export async function createInvoice(
     const { branch_id, party_id, type, invoice_date, items, payments } =
       req.body;
 
+    // Validate user authentication
+    const userId = (req.user as any)?.id;
+    if (!userId) {
+      throw new Error("User not authenticated");
+    }
+
     // Validate items
     if (!items || items.length === 0) {
       throw new Error("Invoice must have at least one item");
@@ -109,7 +115,7 @@ export async function createInvoice(
         total_amount,
         paid_amount: 0,
         status: "DUE",
-        created_by: (req.user as { id: number }).id,
+        created_by: userId, // Safe to use now
       },
       client
     );
@@ -124,8 +130,7 @@ export async function createInvoice(
           product_variant_id: item.product_variant_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
-          discount: item.discount || 0,
-          created_by: (req.user as { id: number }).id,
+          discount:0,
         },
         client
       );
@@ -138,10 +143,9 @@ export async function createInvoice(
         await paymentModel.create(
           {
             invoice_id: invoiceId,
-            method: payment.method,
+            method: payment.method.toUpperCase() as "CASH" | "BANK" | "ONLINE", // ✅ Handle case insensitive
             amount: payment.amount,
             reference_no: payment.reference_no,
-            created_by: (req.user as { id: number }).id,
           },
           client
         );
