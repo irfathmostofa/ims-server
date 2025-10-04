@@ -319,3 +319,99 @@ CREATE TABLE setup_data (
     updated_by INT REFERENCES users(id),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE customer (
+    customer_id SERIAL PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    full_name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE,
+    phone VARCHAR(20) NOT NULL UNIQUE,
+    password_hash TEXT,
+    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
+    CREATED_BY VARCHAR(50) DEFAULT USER,
+    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    LAST_UPDATE VARCHAR(50),
+    LAST_UPDATE_DATE TIMESTAMP
+);
+
+CREATE TABLE customer_address (
+    address_id SERIAL PRIMARY KEY,
+    customer_id INT REFERENCES customer(customer_id),
+    label VARCHAR(50),
+    address_line TEXT NOT NULL,
+    city VARCHAR(50),
+    area VARCHAR(50),
+    postal_code VARCHAR(20),
+    is_default BOOLEAN DEFAULT FALSE,
+    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
+    CREATED_BY VARCHAR(50) DEFAULT USER,
+    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE delivery_method (
+    delivery_method_id SERIAL PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    api_base_url TEXT,
+    api_key TEXT,
+    api_secret TEXT,
+    auth_token TEXT,
+    token_expiry TIMESTAMP,
+    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
+    CREATED_BY VARCHAR(50) DEFAULT USER,
+    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE payment_method (
+    payment_method_id SERIAL PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(20) CHECK (type IN ('CASH','CARD','BANK','MOBILE','ONLINE','COD')),
+    provider VARCHAR(50),
+    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
+    CREATED_BY VARCHAR(50) DEFAULT USER,
+    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE order_online (
+    order_id SERIAL PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    customer_id INT REFERENCES customer(customer_id),
+    delivery_address_id INT REFERENCES customer_address(address_id),
+    delivery_method_id INT REFERENCES delivery_method(delivery_method_id),
+    payment_method_id INT REFERENCES payment_method(payment_method_id),
+    total_amount DECIMAL(12,2) NOT NULL,
+    discount_amount DECIMAL(12,2) DEFAULT 0,
+    net_amount DECIMAL(12,2) GENERATED ALWAYS AS (total_amount - discount_amount) STORED,
+    is_cod BOOLEAN DEFAULT FALSE,
+    order_status VARCHAR(20) DEFAULT 'PENDING' CHECK (order_status IN ('PENDING','CONFIRMED','DISPATCHED','DELIVERED','CANCELLED')),
+    payment_status VARCHAR(20) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID','PAID','REFUNDED')),
+    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
+    CREATED_BY VARCHAR(50) DEFAULT USER,
+    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE order_delivery (
+    delivery_id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES order_online(order_id),
+    delivery_method_id INT REFERENCES delivery_method(delivery_method_id),
+    tracking_code VARCHAR(100),
+    delivery_status VARCHAR(20) DEFAULT 'ASSIGNED' 
+        CHECK (delivery_status IN ('ASSIGNED','IN_TRANSIT','DELIVERED','RETURNED','CANCELLED')),
+    cod_amount DECIMAL(12,2) DEFAULT 0,
+    cod_collected BOOLEAN DEFAULT FALSE,
+    cod_collected_date TIMESTAMP,
+    courier_response JSONB,
+    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
+    CREATED_BY VARCHAR(50) DEFAULT USER,
+    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE order_payment_online (
+    payment_id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES order_online(order_id),
+    payment_method_id INT REFERENCES payment_method(payment_method_id),
+    transaction_id VARCHAR(100),
+    amount DECIMAL(12,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','SUCCESS','FAILED','REFUNDED','COLLECTED')),
+    provider_response JSONB,
+    paid_at TIMESTAMP,
+    record_status VARCHAR(1) DEFAULT 'A' CHECK (record_status IN ('A','I')),
+    created_by VARCHAR(50) DEFAULT current_user,
+    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

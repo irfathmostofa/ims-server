@@ -13,3 +13,15 @@ export const userModel = new CrudModel(
   ],
   ["username", "phone"]
 );
+export const customerModel = new CrudModel(
+  "customer",
+  ["code", "full_name", "phone", "password_hash"],
+  ["email", "phone"],
+  ["email"]
+);
+export const customerAddressModel = new CrudModel(
+  "customer_address",
+  ["customer_id", "label", "address_line", "postal_code"],
+  [],
+  ["city", "area"]
+);

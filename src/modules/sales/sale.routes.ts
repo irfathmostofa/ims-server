@@ -13,14 +13,14 @@ import {
 
 export default async function salesRoutes(app: FastifyInstance) {
   // ===== INVOICE ROUTES =====
-app.addHook("onRequest", app.authenticate);
+  app.addHook("onRequest", app.authenticate);
   app.post("/create-invoices", createInvoice);
 
   /**
    * Get all invoices with filters and pagination
    * GET /api/invoices?page=1&limit=10&type=SALE&status=PAID&branch_id=1&party_id=5&from_date=2025-01-01&to_date=2025-12-31
    */
-  app.get("/get-All-invoices", getAllInvoices);
+  app.post("/get-All-invoices", getAllInvoices);
 
   /**
    * Get single invoice by ID with items and payments

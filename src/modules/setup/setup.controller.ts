@@ -5,6 +5,8 @@ import { generatePrefixedId } from "../../core/models/idGenerator";
 import {
   brancheModel,
   companyModel,
+  deliveryMethodModel,
+  paymentMethodModel,
   roleModel,
   setupDataModel,
 } from "./setup.model";
@@ -785,5 +787,119 @@ export async function bulkCreateSetupData(
     reply.status(400).send({ success: false, message: err.message });
   } finally {
     client.release();
+  }
+}
+
+export async function createDeliveryMethod(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const fields = req.body as Record<string, any>;
+    fields.code = await generatePrefixedId("delivery_method", "DM");
+    const newDeliveryMethod = await deliveryMethodModel.create(fields);
+    reply.send(
+      successResponse(newDeliveryMethod, "Delivery method created successfully")
+    );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function getDeliveryMethods(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const deliveryMethods = await deliveryMethodModel.findAll();
+    reply.send(successResponse(deliveryMethods));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function updateDeliveryMethod(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.params as { id: number };
+    const fields = req.body as Record<string, any>;
+    const updated = await deliveryMethodModel.update(id, fields);
+    reply.send(
+      successResponse(updated, "Delivery method updated successfully")
+    );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function deleteDeliveryMethod(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.body as { id: number };
+    const deleted = await deliveryMethodModel.delete(id);
+    reply.send(
+      successResponse(deleted, "Delivery method deleted successfully")
+    );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function createPaymentMethod(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const fields = req.body as Record<string, any>;
+    fields.code = await generatePrefixedId("payment_method", "PM");
+    const newPaymentMethod = await paymentMethodModel.create(fields);
+    reply.send(
+      successResponse(newPaymentMethod, "Payment method created successfully")
+    );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function getPaymentMethods(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const paymentMethods = await paymentMethodModel.findAll();
+    reply.send(successResponse(paymentMethods));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function updatePaymentMethod(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.params as { id: number };
+    const fields = req.body as Record<string, any>;
+    const updated = await paymentMethodModel.update(id, fields);
+    reply.send(successResponse(updated, "Payment method updated successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function deletePaymentMethod(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.body as { id: number };
+    const deleted = await paymentMethodModel.delete(id);
+    reply.send(successResponse(deleted, "Payment method deleted successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
   }
 }

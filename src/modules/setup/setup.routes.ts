@@ -22,6 +22,14 @@ import {
   deleteSetupData,
   getActivityLogs,
   getActivityStats,
+  createDeliveryMethod,
+  getDeliveryMethods,
+  updateDeliveryMethod,
+  deleteDeliveryMethod,
+  createPaymentMethod,
+  getPaymentMethods,
+  updatePaymentMethod,
+  deletePaymentMethod,
 } from "./setup.controller";
 
 export default async function setupRoutes(app: FastifyInstance) {
@@ -55,4 +63,14 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.get("/get-setup-data-by/:id", getSetupData);
   app.post("/update-setup-data/:id", updateSetupData);
   app.post("/delete-setup-data", deleteSetupData);
+
+  app.post("/create-delivery-method", createDeliveryMethod);
+  app.get("/get-delivery-methods", getDeliveryMethods);
+  app.post("/update-delivery-method/:id", updateDeliveryMethod);
+  app.post("/delete-delivery-method", deleteDeliveryMethod);
+
+  app.post("/create-payment-method", createPaymentMethod);
+  app.get("/get-payment-methods", getPaymentMethods);
+  app.post("/update-payment-method/:id", updatePaymentMethod);
+  app.post("/delete-payment-method", deletePaymentMethod);
 }

@@ -23,3 +23,16 @@ export const setupDataModel = new CrudModel(
   ["setup_code"],
   ["setup_code", "group_name", "status", "created_by", "updated_by"]
 );
+export const deliveryMethodModel = new CrudModel(
+  "delivery_method",
+  ["code", "name", "api_base_url", "api_key", "api_secret", "auth_token"],
+  [],
+  ["token_expiry", "status", "created_by", "creation_date"]
+);
+
+export const paymentMethodModel = new CrudModel(
+  "payment_method",
+  ["code", "name", "type", "provider"],
+  ["code", "name"],
+  ["status", "created_by", "creation_date"]
+);

@@ -25,6 +25,16 @@ interface CreateInvoiceBody {
   items: InvoiceItem[];
   payments?: Payment[];
 }
+interface getAllInvoiceBody {
+  page?: string;
+  limit?: string;
+  type?: string;
+  status?: string;
+  branch_id?: string;
+  party_id?: string;
+  from_date?: string;
+  to_date?: string;
+}
 
 interface UpdateInvoiceBody {
   branch_id?: number;
@@ -130,7 +140,7 @@ export async function createInvoice(
           product_variant_id: item.product_variant_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
-          discount:0,
+          discount: 0,
         },
         client
       );
@@ -143,7 +153,7 @@ export async function createInvoice(
         await paymentModel.create(
           {
             invoice_id: invoiceId,
-            method: payment.method.toUpperCase() as "CASH" | "BANK" | "ONLINE", // ✅ Handle case insensitive
+            method: payment.method.toUpperCase() as "CASH" | "BANK" | "ONLINE", //  Handle case insensitive
             amount: payment.amount,
             reference_no: payment.reference_no,
           },
@@ -257,19 +267,9 @@ export async function getInvoice(
 /**
  * Get All Invoices with Filters
  */
+
 export async function getAllInvoices(
-  req: FastifyRequest<{
-    Querystring: {
-      page?: string;
-      limit?: string;
-      type?: string;
-      status?: string;
-      branch_id?: string;
-      party_id?: string;
-      from_date?: string;
-      to_date?: string;
-    };
-  }>,
+  req: FastifyRequest<{ Body: getAllInvoiceBody }>,
   reply: FastifyReply
 ) {
   try {
@@ -282,63 +282,70 @@ export async function getAllInvoices(
       party_id,
       from_date,
       to_date,
-    } = req.query;
+    } = req.body;
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const conditions: string[] = [];
     const values: any[] = [];
     let paramIndex = 1;
 
-    // Build WHERE clause
+    //  Always prefix with alias `i.` to prevent ambiguity
     if (type) {
-      conditions.push(`type = $${paramIndex++}`);
+      conditions.push(`i.type = $${paramIndex++}`);
       values.push(type);
     }
     if (status) {
-      conditions.push(`status = $${paramIndex++}`);
+      conditions.push(`i.status = $${paramIndex++}`);
       values.push(status);
     }
     if (branch_id) {
-      conditions.push(`branch_id = $${paramIndex++}`);
+      conditions.push(`i.branch_id = $${paramIndex++}`);
       values.push(parseInt(branch_id));
     }
     if (party_id) {
-      conditions.push(`party_id = $${paramIndex++}`);
+      conditions.push(`i.party_id = $${paramIndex++}`);
       values.push(parseInt(party_id));
     }
     if (from_date) {
-      conditions.push(`invoice_date >= $${paramIndex++}`);
+      conditions.push(`i.invoice_date >= $${paramIndex++}`);
       values.push(from_date);
     }
     if (to_date) {
-      conditions.push(`invoice_date <= $${paramIndex++}`);
+      conditions.push(`i.invoice_date <= $${paramIndex++}`);
       values.push(to_date);
     }
 
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    // Get total count
-    const countResult = await pool.query(
-      `SELECT COUNT(*) FROM invoice ${whereClause}`,
-      values
-    );
-    const totalCount = parseInt(countResult.rows[0].count);
+    //  Count query (with alias for consistency)
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM invoice i
+      ${whereClause};
+    `;
+    const countResult = await pool.query(countQuery, values);
+    const totalCount = parseInt(countResult.rows[0].total);
 
-    // Get invoices
-    const invoicesResult = await pool.query(
-      `SELECT 
+    //  Main data query (clear aliases, no ambiguity)
+    const dataQuery = `
+      SELECT 
         i.*,
-        b.name as branch_name,
-        p.name as party_name
+        b.name AS branch_name,
+        p.name AS party_name
       FROM invoice i
       LEFT JOIN branch b ON i.branch_id = b.id
       LEFT JOIN party p ON i.party_id = p.id
       ${whereClause}
       ORDER BY i.created_at DESC
-      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
-      [...values, parseInt(limit), offset]
-    );
+      LIMIT $${paramIndex++} OFFSET $${paramIndex};
+    `;
+
+    const invoicesResult = await pool.query(dataQuery, [
+      ...values,
+      parseInt(limit),
+      offset,
+    ]);
 
     reply.send({
       success: true,

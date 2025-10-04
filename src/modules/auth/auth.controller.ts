@@ -149,3 +149,5 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
     reply.status(500).send({ success: false, message: err.message });
   }
 }
+
+
