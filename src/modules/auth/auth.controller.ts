@@ -3,6 +3,8 @@ import { CrudModel } from "../../core/models/crud.model";
 import bcrypt from "bcrypt";
 import pool from "../../config/db";
 import { successResponse } from "../../core/utils/response";
+import { customerModel } from "../users/user.model";
+import { generatePrefixedId } from "../../core/models/idGenerator";
 
 const userModel = new CrudModel("users");
 
@@ -150,4 +152,71 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
   }
 }
 
+export async function loginCustomer(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { email, password } = req.body as any;
+    const customer = await customerModel.findByField("email", email);
+    if (!customer)
+      return reply.status(401).send({ message: "Invalid credentials" });
 
+    const valid = await bcrypt.compare(password, customer.password_hash);
+    if (!valid)
+      return reply.status(401).send({ message: "Invalid credentials" });
+
+    const token = (req.server as any).jwt.sign(customer);
+    reply.send({
+      success: true,
+      message: "Login successful",
+      token,
+      user: customer,
+    });
+  } catch (err: any) {
+    reply.status(500).send({ success: false, message: err.message });
+  }
+}
+
+export async function googleCallback(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    // 1️⃣ Exchange code for access token
+    const tokenResponse = await (
+      req.server as any
+    ).googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(req);
+
+    // 2️⃣ Get Google user info
+    const googleUser = await fetch(
+      `https://www.googleapis.com/oauth2/v2/userinfo?access_token=${tokenResponse.access_token}`
+    ).then((res) => res.json());
+
+    if (!googleUser.email) {
+      return reply.status(400).send({ message: "Google account has no email" });
+    }
+
+    // 3️⃣ Check if customer exists
+    let customer = await customerModel.findByField("email", googleUser.email);
+
+    // 4️⃣ Create customer if not exists
+    if (!customer) {
+      const code = await generatePrefixedId("customers", "CUS");
+      customer = await customerModel.create({
+        code,
+        full_name: googleUser.name,
+        email: googleUser.email,
+        phone: googleUser.phone || "0000000000",
+        password_hash: "", // Google login users have no password
+      });
+    }
+
+    // 5️⃣ Sign JWT
+    const token = (req.server as any).jwt.sign(customer);
+
+    // 6️⃣ Return JWT and user info
+    reply.send({
+      success: true,
+      message: "Google login successful",
+      token,
+      user: customer,
+    });
+  } catch (err: any) {
+    reply.status(500).send({ success: false, message: err.message });
+  }
+}

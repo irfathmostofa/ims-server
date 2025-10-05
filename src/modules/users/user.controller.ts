@@ -56,16 +56,20 @@ export async function getCustomer(req: FastifyRequest, reply: FastifyReply) {
 }
 export async function createCustomer(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const customerData = req.body as Record<string, any>;
+    const customerData = req.body as any;
 
-    customerData.password_hash = await bcrypt.hash(
-      customerData.password_hash,
-      10
-    );
-    customerData.code = await generatePrefixedId("customer", "CUS");
-
+    // hash password
+    if (customerData.password) {
+      const salt = await bcrypt.genSalt(10);
+      customerData.password_hash = await bcrypt.hash(
+        customerData.password,
+        salt
+      );
+      delete customerData.password;
+    }
+    customerData.code = await generatePrefixedId("customers", "CUS");
     const newUser = await customerModel.create(customerData);
-    reply.send(successResponse(newUser, "User created successfully"));
+    reply.send(successResponse(newUser, "Customer created successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }

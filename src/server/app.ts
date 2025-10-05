@@ -13,6 +13,7 @@ import { inventoryRoutes } from "../modules/inventory/inventory.routes";
 import salesRoutes from "../modules/sales/sale.routes";
 import poRoutes from "../modules/Purchase-Order/po.routes";
 import coaRoutes from "../modules/coa/coa.routes";
+import fastifyOauth2 from "@fastify/oauth2";
 
 dotenv.config();
 
@@ -24,6 +25,19 @@ app.register(fastifyCors, {
 });
 app.register(fastifyHelmet);
 app.register(authPlugin);
+app.register(fastifyOauth2, {
+  name: "googleOAuth2",
+  scope: ["profile", "email"],
+  credentials: {
+    client: {
+      id: process.env.GOOGLE_CLIENT_ID!,
+      secret: process.env.GOOGLE_CLIENT_SECRET!,
+    },
+    auth: fastifyOauth2.GOOGLE_CONFIGURATION,
+  },
+  startRedirectPath: "/auth/google/login", // user clicks login → redirect to Google
+  callbackUri: "http://localhost:3000/auth/google/callback", // your backend callback URL
+});
 // app.register(jwt, { secret: process.env.JWT_SECRET || "secret" });
 
 // Routes
