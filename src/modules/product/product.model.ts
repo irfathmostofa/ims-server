@@ -45,3 +45,10 @@ export const productBarcodeModel = new CrudModel(
   ["barcode"],
   ["type", "is_primary", "status", "created_by"]
 );
+
+export const productReviewModel = new CrudModel(
+  "product_review",
+  ["order_id", "product_id", "customer_id", "rating", "title", "comment"], // required
+  [], // unique
+  ["helpful_count", "status", "creation_date"] // optional
+);

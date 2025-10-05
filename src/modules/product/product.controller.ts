@@ -10,6 +10,7 @@ import {
   productCatModel,
   productImageModel,
   productModel,
+  productReviewModel,
   productVariantModel,
   UomModel,
 } from "./product.model";
@@ -922,6 +923,59 @@ export async function findProductByBarcode(
     }
 
     reply.send(successResponse(rows[0], "Product found by barcode"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+// ========== PRODUCT REVIEW CRUD ==========
+
+export async function createProductReview(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const fields = req.body as Record<string, any>;
+    const newData = await productReviewModel.create(fields);
+    reply.send(successResponse(newData, "Product Review created successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function getProductReviews(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { product_id } = req.body as { product_id: string };
+    const data = await productReviewModel.findByField("product_id", product_id);
+    reply.send(successResponse(data));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function updateProductReview(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { review_id } = req.body as { review_id: number };
+    const fields = req.body as Record<string, any>;
+    const updated = await productReviewModel.update(review_id, fields);
+    reply.send(successResponse(updated, "Product Review updated successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function deleteProductReview(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { review_id } = req.body as { review_id: number };
+    const deleted = await productReviewModel.delete(review_id);
+    reply.send(successResponse(deleted, "Product Review deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }

@@ -148,6 +148,7 @@ CREATE TABLE product_barcode (
     updated_by INT REFERENCES users(id),     
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE TABLE uom_conversion (
     id SERIAL PRIMARY KEY,
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
@@ -422,5 +423,17 @@ CREATE TABLE order_payment_online (
     paid_at TIMESTAMP,
     record_status VARCHAR(1) DEFAULT 'A' CHECK (record_status IN ('A','I')),
     created_by VARCHAR(50) DEFAULT current_user,
+    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE product_review (
+    review_id SERIAL PRIMARY KEY,
+    customer_id INT REFERENCES customer(customer_id) ON DELETE CASCADE,
+    product_id INT REFERENCES product(id) ON DELETE CASCADE,
+    order_id INT REFERENCES order_online(order_id) ON DELETE SET NULL,
+    rating SMALLINT CHECK (rating BETWEEN 1 AND 5),
+    title VARCHAR(100),
+    comment TEXT,
+    helpful_count INT DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
     creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -5,12 +5,14 @@ import {
   bulkCreateProducts,
   createProduct,
   createProductCat,
+  createProductReview,
   createProductVariant,
   createUOM,
   deleteProduct,
   deleteProductBarcode,
   deleteProductCat,
   deleteProductImage,
+  deleteProductReview,
   deleteProductVariant,
   deleteUOM,
   findProductByBarcode,
@@ -19,6 +21,7 @@ import {
   getProductById,
   getProductCat,
   getProductImages,
+  getProductReviews,
   getProductsPOS,
   getProductVariants,
   getUOM,
@@ -27,6 +30,7 @@ import {
   updateProductBarcode,
   updateProductCat,
   updateProductImage,
+  updateProductReview,
   updateProductVariant,
   updateUOM,
 } from "./product.controller";
@@ -72,4 +76,10 @@ export default async function productRoutes(app: FastifyInstance) {
   app.get("/variants/:variant_id/barcodes", getProductBarcodes);
   app.post("/update-barcodes/:id", updateProductBarcode);
   app.post("/delete-barcodes/:id", deleteProductBarcode);
+
+  // ===== PRODUCT REVIEW ROUTES =====
+  app.post("/create-reviews", createProductReview);
+  app.get("/get-products-reviews", getProductReviews);
+  app.post("/update-reviews", updateProductReview);
+  app.post("/delete-reviews", deleteProductReview);
 }
