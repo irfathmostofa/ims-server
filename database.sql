@@ -387,6 +387,15 @@ CREATE TABLE order_online (
     CREATED_BY VARCHAR(50) DEFAULT USER,
     CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE order_item_online (
+    id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES order_online(order_id) ON DELETE CASCADE,
+    product_variant_id INT REFERENCES product_variant(id),
+    quantity DECIMAL(12,2) NOT NULL,
+    unit_price DECIMAL(12,2) NOT NULL,
+    discount DECIMAL(12,2) DEFAULT 0,
+    subtotal DECIMAL(12,2) GENERATED ALWAYS AS ((quantity * unit_price) - discount) STORED
+);
 CREATE TABLE order_delivery (
     delivery_id SERIAL PRIMARY KEY,
     order_id INT REFERENCES order_online(order_id),
