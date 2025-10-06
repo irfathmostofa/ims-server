@@ -25,7 +25,7 @@ export async function login(req: FastifyRequest, reply: FastifyReply) {
 
   const users = await userModel.findByField("phone", phone);
   if (!users.length) {
-    return reply.code(400).send({ message: "User not found" });
+    return reply.code(400).send({ message: "Invalid credentials" });
   }
 
   const user = users[0];
@@ -167,19 +167,40 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
 export async function loginCustomer(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { email, password } = req.body as any;
-    const customer = await customerModel.findByField("email", email);
-    if (!customer)
+    const customers = await customerModel.findByField("email", email);
+    if (!customers.length)
       return reply.status(401).send({ message: "Invalid credentials" });
 
+    const customer = customers[0];
     const valid = await bcrypt.compare(password, customer.password_hash);
     if (!valid)
       return reply.status(401).send({ message: "Invalid credentials" });
 
-    const token = (req.server as any).jwt.sign(customer);
+    const token = await reply.jwtSign(customer);
     reply.send({
       success: true,
       message: "Login successful",
       token,
+    });
+  } catch (err: any) {
+    reply.status(500).send({ success: false, message: err.message });
+  }
+}
+export async function getCustomerProfile(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const id = (req.user as any)?.id;
+    const customer = await customerModel.findById(id);
+
+    if (!customer) {
+      return reply.status(404).send({ message: "User not found" });
+    }
+
+    reply.send({
+      success: true,
+      message: "Customer profile fetched successfully",
       user: customer,
     });
   } catch (err: any) {

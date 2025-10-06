@@ -46,6 +46,7 @@ export async function deleteUser(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+
 export async function getCustomer(req: FastifyRequest, reply: FastifyReply) {
   try {
     const customer = await customerModel.findAll();
@@ -54,6 +55,7 @@ export async function getCustomer(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+
 export async function createCustomer(req: FastifyRequest, reply: FastifyReply) {
   try {
     const customerData = req.body as any;
@@ -63,9 +65,11 @@ export async function createCustomer(req: FastifyRequest, reply: FastifyReply) {
       customerData.password_hash,
       10
     );
+
     customerData.code = await generatePrefixedId("customer", "CUS");
     const newUser = await customerModel.create(customerData);
-    reply.send(successResponse(newUser, "Customer created successfully"));
+    const token = await reply.jwtSign(newUser);
+    reply.send(successResponse(token, "Customer created successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
@@ -81,6 +85,7 @@ export async function updateCustomer(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+
 export async function deleteCustomer(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { customer_id } = req.body as { customer_id: number };
