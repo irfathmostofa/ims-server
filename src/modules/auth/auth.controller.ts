@@ -5,6 +5,18 @@ import pool from "../../config/db";
 import { successResponse } from "../../core/utils/response";
 import { customerModel } from "../users/user.model";
 import { generatePrefixedId } from "../../core/models/idGenerator";
+import { EmailService } from "../../core/services/emailService";
+import OTPStore from "../../core/utils/otpStore";
+interface SendOTPBody {
+  email: string;
+  name?: string;
+  type: "signup" | "forgot";
+}
+
+interface VerifyOTPBody {
+  email: string;
+  otp: string;
+}
 
 const userModel = new CrudModel("users");
 
@@ -218,5 +230,130 @@ export async function googleCallback(req: FastifyRequest, reply: FastifyReply) {
     });
   } catch (err: any) {
     reply.status(500).send({ success: false, message: err.message });
+  }
+}
+// OTP Controller functions
+
+// Send OTP
+export async function sendOTP(
+  req: FastifyRequest<{ Body: SendOTPBody }>,
+  reply: FastifyReply
+) {
+  try {
+    const { email, name, type } = req.body;
+
+    if (!email) {
+      return reply.code(400).send({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    // Send OTP email
+    const result = await EmailService.sendOTP(email, name);
+
+    if (!result.success) {
+      return reply.code(500).send({
+        success: false,
+        message: "Failed to send OTP",
+      });
+    }
+
+    // Store OTP
+    if (result.otp) {
+      OTPStore.save(email, result.otp, 2);
+    }
+
+    return reply.send({
+      success: true,
+      message: "OTP sent successfully",
+      email: email,
+    });
+  } catch (error) {
+    console.error("Send OTP error:", error);
+    return reply.code(500).send({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+}
+
+// Verify OTP
+export async function verifyOTP(
+  req: FastifyRequest<{ Body: VerifyOTPBody }>,
+  reply: FastifyReply
+) {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return reply.code(400).send({
+        success: false,
+        message: "Email and OTP are required",
+      });
+    }
+
+    // Verify OTP
+    const result = OTPStore.verify(email, otp);
+
+    if (!result.valid) {
+      return reply.code(400).send({
+        success: false,
+        message: result.message,
+      });
+    }
+
+    return reply.send({
+      success: true,
+      message: result.message,
+      verified: true,
+    });
+  } catch (error) {
+    console.error("Verify OTP error:", error);
+    return reply.code(500).send({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+}
+
+// Resend OTP
+export async function resendOTP(
+  req: FastifyRequest<{ Body: { email: string; name?: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const { email, name } = req.body;
+
+    if (!email) {
+      return reply.code(400).send({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const result = await EmailService.sendOTP(email, name);
+
+    if (!result.success) {
+      return reply.code(500).send({
+        success: false,
+        message: "Failed to resend OTP",
+      });
+    }
+
+    if (result.otp) {
+      OTPStore.save(email, result.otp, 2);
+    }
+
+    return reply.send({
+      success: true,
+      message: "OTP resent successfully",
+    });
+  } catch (error) {
+    console.error("Resend OTP error:", error);
+    return reply.code(500).send({
+      success: false,
+      message: "Internal server error",
+    });
   }
 }
