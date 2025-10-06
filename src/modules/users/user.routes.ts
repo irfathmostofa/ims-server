@@ -11,6 +11,7 @@ import {
   getUsers,
   updateCustomer,
   updateCustomerAddress,
+  updateCustomerPassword,
   updateUser,
 } from "./user.controller";
 
@@ -27,6 +28,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   app.post("/create-customer-address", createCustomerAddress);
   app.post("/update-customer-address/:address_id", updateCustomerAddress);
+  app.post("/update-customer-password", updateCustomerPassword);
   app.post("/delete-customer-address", deleteCustomerAddress);
   app.get("/get-customer-address/:customer_id", getCustomerAddress);
 }

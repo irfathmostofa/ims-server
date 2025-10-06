@@ -85,7 +85,32 @@ export async function updateCustomer(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+export async function updateCustomerPassword(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { customer_id, password_hash } = req.body as {
+      customer_id: number;
+      password_hash: string;
+    };
 
+    if (!password_hash) {
+      reply
+        .status(400)
+        .send({ success: false, message: "Password is required" });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password_hash, 10);
+    const updated = await customerModel.updateSection(customer_id, {
+      password_hash: hashedPassword,
+    });
+    reply.send(successResponse(updated, "Password updated successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
 export async function deleteCustomer(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { customer_id } = req.body as { customer_id: number };

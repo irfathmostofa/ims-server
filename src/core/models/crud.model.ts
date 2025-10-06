@@ -125,6 +125,35 @@ export class CrudModel {
     return rows[0];
   }
 
+  async updateSection(
+    id: number,
+    sectionFields: Record<string, any>,
+    client?: any
+  ) {
+    const queryRunner = client || pool;
+
+    const sanitized = this.sanitizeData(sectionFields);
+    // Don't validate required fields on section update
+    await this.checkDuplicates(sanitized, id, queryRunner);
+
+    const keys = Object.keys(sanitized);
+    const values = Object.values(sanitized);
+
+    if (keys.length === 0) {
+      throw new Error("No fields to update in section");
+    }
+
+    const setClause = keys.map((key, i) => `${key} = $${i + 1}`).join(", ");
+
+    const { rows } = await queryRunner.query(
+      `UPDATE ${this.table} SET ${setClause} WHERE id = $${
+        keys.length + 1
+      } RETURNING *`,
+      [...values, id]
+    );
+
+    return rows[0];
+  }
   async delete(id: number, client?: any) {
     const queryRunner = client || pool;
 
