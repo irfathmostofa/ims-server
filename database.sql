@@ -322,7 +322,7 @@ CREATE TABLE setup_data (
 );
 
 CREATE TABLE customer (
-    customer_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     code VARCHAR(30) UNIQUE NOT NULL,
     full_name VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE,
@@ -336,8 +336,8 @@ CREATE TABLE customer (
 );
 
 CREATE TABLE customer_address (
-    address_id SERIAL PRIMARY KEY,
-    customer_id INT REFERENCES customer(customer_id),
+    id SERIAL PRIMARY KEY,
+    customer_id INT REFERENCES customer(id),
     label VARCHAR(50),
     address_line TEXT NOT NULL,
     city VARCHAR(50),
@@ -345,11 +345,10 @@ CREATE TABLE customer_address (
     postal_code VARCHAR(20),
     is_default BOOLEAN DEFAULT FALSE,
     STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-    CREATED_BY VARCHAR(50) DEFAULT USER,
     CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE delivery_method (
-    delivery_method_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     code VARCHAR(30) UNIQUE NOT NULL,
     name VARCHAR(100) NOT NULL,
     api_base_url TEXT,
@@ -358,39 +357,38 @@ CREATE TABLE delivery_method (
     auth_token TEXT,
     token_expiry TIMESTAMP,
     STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-    CREATED_BY VARCHAR(50) DEFAULT USER,
-    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+     created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 );
 CREATE TABLE payment_method (
-    payment_method_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     code VARCHAR(30) UNIQUE NOT NULL,
     name VARCHAR(100) NOT NULL,
     type VARCHAR(20) CHECK (type IN ('CASH','CARD','BANK','MOBILE','ONLINE','COD')),
     provider VARCHAR(50),
     STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-    CREATED_BY VARCHAR(50) DEFAULT USER,
-    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+     created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 );
 CREATE TABLE order_online (
-    order_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     code VARCHAR(30) UNIQUE NOT NULL,
-    customer_id INT REFERENCES customer(customer_id),
-    delivery_address_id INT REFERENCES customer_address(address_id),
-    delivery_method_id INT REFERENCES delivery_method(delivery_method_id),
-    payment_method_id INT REFERENCES payment_method(payment_method_id),
+    customer_id INT REFERENCES customer(id),
+    delivery_address_id INT REFERENCES customer_address(id),
+    delivery_method_id INT REFERENCES delivery_method(id),
+    payment_method_id INT REFERENCES payment_method(id),
     total_amount DECIMAL(12,2) NOT NULL,
     discount_amount DECIMAL(12,2) DEFAULT 0,
     net_amount DECIMAL(12,2) GENERATED ALWAYS AS (total_amount - discount_amount) STORED,
     is_cod BOOLEAN DEFAULT FALSE,
     order_status VARCHAR(20) DEFAULT 'PENDING' CHECK (order_status IN ('PENDING','CONFIRMED','DISPATCHED','DELIVERED','CANCELLED')),
     payment_status VARCHAR(20) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID','PAID','REFUNDED')),
-    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-    CREATED_BY VARCHAR(50) DEFAULT USER,
-    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 );
 CREATE TABLE order_item_online (
     id SERIAL PRIMARY KEY,
-    order_id INT REFERENCES order_online(order_id) ON DELETE CASCADE,
+    order_id INT REFERENCES order_online(id) ON DELETE CASCADE,
     product_variant_id INT REFERENCES product_variant(id),
     quantity DECIMAL(12,2) NOT NULL,
     unit_price DECIMAL(12,2) NOT NULL,
@@ -398,9 +396,9 @@ CREATE TABLE order_item_online (
     subtotal DECIMAL(12,2) GENERATED ALWAYS AS ((quantity * unit_price) - discount) STORED
 );
 CREATE TABLE order_delivery (
-    delivery_id SERIAL PRIMARY KEY,
-    order_id INT REFERENCES order_online(order_id),
-    delivery_method_id INT REFERENCES delivery_method(delivery_method_id),
+    id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES order_online(id),
+    delivery_method_id INT REFERENCES delivery_method(id),
     tracking_code VARCHAR(100),
     delivery_status VARCHAR(20) DEFAULT 'ASSIGNED' 
         CHECK (delivery_status IN ('ASSIGNED','IN_TRANSIT','DELIVERED','RETURNED','CANCELLED')),
@@ -408,32 +406,32 @@ CREATE TABLE order_delivery (
     cod_collected BOOLEAN DEFAULT FALSE,
     cod_collected_date TIMESTAMP,
     courier_response JSONB,
-    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-    CREATED_BY VARCHAR(50) DEFAULT USER,
-    CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE order_payment_online (
     payment_id SERIAL PRIMARY KEY,
-    order_id INT REFERENCES order_online(order_id),
-    payment_method_id INT REFERENCES payment_method(payment_method_id),
+    order_id INT REFERENCES order_online(id),
+    payment_method_id INT REFERENCES payment_method(id),
     transaction_id VARCHAR(100),
     amount DECIMAL(12,2) NOT NULL,
     status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','SUCCESS','FAILED','REFUNDED','COLLECTED')),
     provider_response JSONB,
     paid_at TIMESTAMP,
     record_status VARCHAR(1) DEFAULT 'A' CHECK (record_status IN ('A','I')),
-    created_by VARCHAR(50) DEFAULT current_user,
-    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE product_review (
     review_id SERIAL PRIMARY KEY,
-    customer_id INT REFERENCES customer(customer_id) ON DELETE CASCADE,
+    customer_id INT REFERENCES customer(id) ON DELETE CASCADE,
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
-    order_id INT REFERENCES order_online(order_id) ON DELETE SET NULL,
+    order_id INT REFERENCES order_online(id) ON DELETE SET NULL,
     rating SMALLINT CHECK (rating BETWEEN 1 AND 5),
     title VARCHAR(100),
     comment TEXT,
     helpful_count INT DEFAULT 0,
     status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
-    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

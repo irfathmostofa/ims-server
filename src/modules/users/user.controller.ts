@@ -59,15 +59,11 @@ export async function createCustomer(req: FastifyRequest, reply: FastifyReply) {
     const customerData = req.body as any;
 
     // hash password
-    if (customerData.password) {
-      const salt = await bcrypt.genSalt(10);
-      customerData.password_hash = await bcrypt.hash(
-        customerData.password,
-        salt
-      );
-      delete customerData.password;
-    }
-    customerData.code = await generatePrefixedId("customers", "CUS");
+    customerData.password_hash = await bcrypt.hash(
+      customerData.password_hash,
+      10
+    );
+    customerData.code = await generatePrefixedId("customer", "CUS");
     const newUser = await customerModel.create(customerData);
     reply.send(successResponse(newUser, "Customer created successfully"));
   } catch (err: any) {
