@@ -36,7 +36,7 @@ import {
 } from "./product.controller";
 
 export default async function productRoutes(app: FastifyInstance) {
-  app.addHook("onRequest", app.authenticate);
+  // app.addHook("onRequest", app.authenticate);
   // product category
   app.post("/create-product-cat", createProductCat);
   app.get("/get-product-cat", getProductCat);
