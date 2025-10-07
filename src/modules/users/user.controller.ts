@@ -3,6 +3,7 @@ import { successResponse } from "../../core/utils/response";
 import bcrypt from "bcrypt";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 import { customerAddressModel, customerModel, userModel } from "./user.model";
+import pool from "../../config/db";
 
 export async function getUsers(req: FastifyRequest, reply: FastifyReply) {
   try {
@@ -90,8 +91,8 @@ export async function updateCustomerPassword(
   reply: FastifyReply
 ) {
   try {
-    const { customer_id, password_hash } = req.body as {
-      customer_id: number;
+    const { email, password_hash } = req.body as {
+      email: string;
       password_hash: string;
     };
 
@@ -103,10 +104,14 @@ export async function updateCustomerPassword(
     }
 
     const hashedPassword = await bcrypt.hash(password_hash, 10);
-    const updated = await customerModel.updateSection(customer_id, {
-      password_hash: hashedPassword,
-    });
-    reply.send(successResponse(updated, "Password updated successfully"));
+
+    // Use raw query to update password
+    const result = await pool.query(
+      `UPDATE customer SET password_hash = $1 WHERE email = $2 RETURNING *`,
+      [hashedPassword, email]
+    );
+
+    reply.send(successResponse(result, "Password updated successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }

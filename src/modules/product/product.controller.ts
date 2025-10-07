@@ -37,8 +37,29 @@ export async function createProductCat(
 
 export async function getProductCat(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const data = await productCatModel.findAll();
-    reply.send(successResponse(data));
+    // 1️⃣ Get all categories
+    const categories = await productCatModel.findAll();
+
+    // 2️⃣ Create a map to store categories by id
+    const map: Record<number, any> = {};
+    categories.forEach((cat: any) => {
+      map[cat.id] = { ...cat, children: [] };
+    });
+
+    // 3️⃣ Build the nested structure
+    const tree: any[] = [];
+    categories.forEach((cat: any) => {
+      if (cat.parent_id) {
+        if (map[cat.parent_id]) {
+          map[cat.parent_id].children.push(map[cat.id]);
+        }
+      } else {
+        tree.push(map[cat.id]);
+      }
+    });
+
+    // 4️⃣ Send response
+    reply.send(successResponse(tree));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
