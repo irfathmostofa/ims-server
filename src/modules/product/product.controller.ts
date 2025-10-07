@@ -15,7 +15,17 @@ import {
   UomModel,
 } from "./product.model";
 import pool from "../../config/db";
-
+function slugify(text: string) {
+  return text
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-") // replace spaces with hyphens
+    .replace(/[^\w\-]+/g, "") // remove all non-word chars
+    .replace(/\-\-+/g, "-") // replace multiple hyphens
+    .replace(/^-+/, "") // trim hyphens from start
+    .replace(/-+$/, ""); // trim hyphens from end
+}
 // ========== Product Category ==========
 export async function createProductCat(
   req: FastifyRequest,
@@ -26,6 +36,9 @@ export async function createProductCat(
     fields.created_by = (req.user as { id: number }).id;
 
     fields.code = await generatePrefixedId("category", "PCAT");
+    if (!fields.slug || fields.slug.trim() === "") {
+      fields.slug = slugify(fields.name);
+    }
     const newData = await productCatModel.create(fields);
     reply.send(
       successResponse(newData, "Product Category created successfully")

@@ -23,10 +23,8 @@ export class EmailService {
         html: template.html,
       });
 
-      console.log(`✅ OTP sent to ${email}: ${otp}`);
       return { success: true, otp };
     } catch (error) {
-      console.error("❌ Failed to send OTP:", error);
       return { success: false, error: (error as Error).message };
     }
   }
@@ -45,11 +43,8 @@ export class EmailService {
         subject: template.subject,
         html: template.html,
       });
-
-      console.log(`✅ Welcome email sent to ${email}`);
       return { success: true };
     } catch (error) {
-      console.error("❌ Failed to send welcome email:", error);
       return { success: false, error: (error as Error).message };
     }
   }
@@ -69,10 +64,8 @@ export class EmailService {
         html: template.html,
       });
 
-      console.log(`✅ Password reset confirmation sent to ${email}`);
       return { success: true };
     } catch (error) {
-      console.error("❌ Failed to send password reset email:", error);
       return { success: false, error: (error as Error).message };
     }
   }
