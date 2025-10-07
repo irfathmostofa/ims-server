@@ -2,7 +2,7 @@ import { CrudModel } from "../../core/models/crud.model";
 export const productCatModel = new CrudModel(
   "category", // table name
   ["name", "slug"], // required
-  ["name", "slug"], // unique
+  ["code"], // unique
   ["code", "parent_id"] // optional
 );
 export const UomModel = new CrudModel(
