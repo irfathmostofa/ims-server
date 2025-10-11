@@ -381,9 +381,8 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         SELECT 
           product_id,
           ROUND(COALESCE(AVG(rating), 0)::NUMERIC, 1) AS rating,
-          COUNT(DISTINCT review_id) AS review_count
+          COUNT(DISTINCT id) AS review_count
         FROM product_review
-        WHERE status = 'APPROVED'
         GROUP BY product_id
       ) r ON p.id = r.product_id
 
@@ -534,7 +533,6 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
     `;
 
     const { rows } = await pool.query(query, [id]);
-
     if (rows.length === 0) {
       return reply
         .status(404)
@@ -560,11 +558,50 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
       })
     );
 
+    // ✅ Get product reviews
+    const reviewQuery = `
+      SELECT 
+        r.id,
+        r.rating,
+        r.title,
+        r.comment,
+        r.helpful_count AS helpful,
+        TO_CHAR(r.created_at, 'YYYY-MM-DD') AS created_at,
+        c.full_name AS customer_name,
+        COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', ri.id,
+              'image_url', ri.image_url
+            )
+          ) FILTER (WHERE ri.id IS NOT NULL), '[]'
+        ) AS images
+      FROM product_review r
+      LEFT JOIN customer c ON r.customer_id = c.id
+      LEFT JOIN product_review_image ri ON ri.id = r.id
+      WHERE r.product_id = $1
+      GROUP BY r.id, c.full_name, r.rating, r.title, r.comment, r.helpful_count, r.created_at
+      ORDER BY r.created_at DESC;
+    `;
+    const { rows: reviews } = await pool.query(reviewQuery, [id]);
+
+    // ✅ Calculate overall rating and review count
+    const reviewSummary =
+      reviews.length > 0
+        ? {
+            average_rating:
+              reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length,
+            total_reviews: reviews.length,
+          }
+        : { average_rating: null, total_reviews: 0 };
+
     const result = {
       ...product,
       variants,
       images,
       barcodes,
+      reviews,
+      review_summary: reviewSummary,
     };
 
     reply.send(successResponse(result, "Product retrieved successfully"));
@@ -1169,9 +1206,9 @@ export async function updateProductReview(
   reply: FastifyReply
 ) {
   try {
-    const { review_id } = req.body as { review_id: number };
+    const { id } = req.body as { id: number };
     const fields = req.body as Record<string, any>;
-    const updated = await productReviewModel.update(review_id, fields);
+    const updated = await productReviewModel.update(id, fields);
     reply.send(successResponse(updated, "Product Review updated successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1182,8 +1219,8 @@ export async function deleteProductReview(
   reply: FastifyReply
 ) {
   try {
-    const { review_id } = req.body as { review_id: number };
-    const deleted = await productReviewModel.delete(review_id);
+    const { id } = req.body as { id: number };
+    const deleted = await productReviewModel.delete(id);
     reply.send(successResponse(deleted, "Product Review deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });

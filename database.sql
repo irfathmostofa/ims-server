@@ -412,7 +412,7 @@ CREATE TABLE order_delivery (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE order_payment_online (
-    payment_id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     order_id INT REFERENCES order_online(id),
     payment_method_id INT REFERENCES payment_method(id),
     transaction_id VARCHAR(100),
@@ -425,14 +425,17 @@ CREATE TABLE order_payment_online (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE product_review (
-    review_id SERIAL PRIMARY KEY,
-    customer_id INT REFERENCES customer(id) ON DELETE CASCADE,
-    product_id INT REFERENCES product(id) ON DELETE CASCADE,
-    order_id INT REFERENCES order_online(id) ON DELETE SET NULL,
-    rating SMALLINT CHECK (rating BETWEEN 1 AND 5),
-    title VARCHAR(100),
-    comment TEXT,
-    helpful_count INT DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  id SERIAL PRIMARY KEY,
+  product_id INT REFERENCES product(id),
+  customer_id INT REFERENCES customer(id),
+  rating NUMERIC(2,1) CHECK (rating BETWEEN 0 AND 5),
+  title VARCHAR(100),
+  comment TEXT,
+  helpful_count INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE product_review_image (
+  id SERIAL PRIMARY KEY,
+  review_id INT REFERENCES product_review(id),
+  image_url TEXT
 );
