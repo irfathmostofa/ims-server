@@ -173,45 +173,48 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
       ...productData
     } = req.body as Record<string, any>;
 
-    //  product
+    // Get user ID safely
+    const userId = (req.user as { id: number } | null)?.id;
+    console.log(userId, "product create user id");
+    // Create product
     productData.code = await generatePrefixedId("product", "PROD");
-    productData.created_by = (req.user as { id: number }).id;
+    productData.created_by = userId;
 
     const product = await productModel.create(productData);
 
-    //  categories
+    // Create categories
     for (const cat of categories) {
       await productCategoryModel.create({
         product_id: product.id,
         category_id: cat.id,
         is_primary: cat.is_primary || false,
-        created_by: (req.user as { id: number }).id,
+        created_by: userId,
       });
     }
 
-    //  variants + auto barcodes
+    // Create variants + auto barcodes
     for (const v of variants) {
       v.code = await generatePrefixedId("product_variant", "VAR");
       v.product_id = product.id;
-      v.created_by = (req.user as { id: number }).id;
+      v.created_by = userId;
       const variant = await productVariantModel.create(v);
 
-      //  auto-generate barcode for this variant
-      const generatedBarcode = await generateRandomBarcode(v.code); // create unique code
+      // Auto-generate barcode for this variant
+      const generatedBarcode = await generateRandomBarcode(v.code);
       await productBarcodeModel.create({
         product_variant_id: variant.id,
         barcode: generatedBarcode,
         type: "EAN13",
         is_primary: true,
-        created_by: (req.user as { id: number }).id,
+        created_by: userId,
       });
     }
 
-    //  images
+    // Create images
     for (const img of images) {
       img.code = await generatePrefixedId("product_image", "IMG");
       img.product_id = product.id;
-      img.created_by = (req.user as { id: number }).id;
+      img.created_by = userId;
       await productImageModel.create(img);
     }
 
@@ -257,23 +260,195 @@ export async function bulkCreateProducts(
 
 export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { page = 1, limit = 10, status, category_id } = req.query as any;
+    const { page, limit, status, category_id, search } = req.body as {
+      page?: number;
+      limit?: number;
+      status?: string;
+      category_id?: number;
+      search?: string;
+    };
 
-    const filters: Record<string, any> = {};
-    if (status) filters.status = status;
-    if (category_id) filters.category_id = category_id;
+    const pageNum = page || 1;
+    const limitNum = limit || 10;
+    const offset = (pageNum - 1) * limitNum;
 
-    const products = await productModel.findWithPagination(
-      parseInt(page),
-      parseInt(limit),
-      filters
-    );
+    let query = `
+      SELECT 
+        p.id,
+        p.code,
+        p.name,
+        p.description,
+        p.cost_price,
+        p.selling_price,
+        p.status,
+        u.name AS uom_name,
+        pi.images,
+        cat.categories,
+        p.total_stock,
+        CASE 
+          WHEN p.created_at >= NOW() - INTERVAL '30 days' THEN 'New'
+          ELSE NULL
+        END AS badge,
+        r.rating,
+        r.review_count,
+        p.total_sales
+      FROM (
+        SELECT 
+          p.id,
+          p.code,
+          p.name,
+          p.description,
+          p.cost_price,
+          p.selling_price,
+          p.status,
+          p.uom_id,
+          p.created_at,
+          COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock,
+          COALESCE(SUM(oio.subtotal), 0) AS total_sales
+        FROM product p
+        LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
+        LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
+        LEFT JOIN order_item_online oio ON pv.id = oio.product_variant_id
+        LEFT JOIN product_categories pc ON p.id = pc.product_id
+        WHERE 1=1
+    `;
 
-    reply.send(successResponse(products, "Products retrieved successfully"));
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (status && status !== "") {
+      query += ` AND p.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    if (category_id) {
+      query += ` AND pc.category_id = $${paramIndex}`;
+      params.push(category_id);
+      paramIndex++;
+    }
+
+    if (search && search !== "") {
+      query += ` AND (p.name ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    query += `
+        GROUP BY p.id, p.code, p.name, p.description, p.cost_price, p.selling_price, p.status, p.uom_id, p.created_at
+      ) p
+      LEFT JOIN uom u ON p.uom_id = u.id
+
+      -- Product Images
+      LEFT JOIN (
+        SELECT 
+          product_id,
+          json_agg(
+            json_build_object(
+              'id', id,
+              'url', url,
+              'alt_text', alt_text,
+              'is_primary', is_primary
+            ) ORDER BY is_primary DESC, id
+          ) AS images
+        FROM product_image
+        WHERE status = 'A'
+        GROUP BY product_id
+      ) pi ON p.id = pi.product_id
+
+      -- Product Categories
+      LEFT JOIN (
+        SELECT 
+          pc.product_id,
+          json_agg(
+            json_build_object(
+              'id', c.id,
+              'name', c.name,
+              'slug', c.slug,
+              'code', c.code,
+              'image', c.image,
+              'is_primary', pc.is_primary
+            ) ORDER BY pc.is_primary DESC, c.id
+          ) AS categories
+        FROM product_categories pc
+        JOIN category c ON pc.category_id = c.id
+        WHERE c.status = 'A'
+        GROUP BY pc.product_id
+      ) cat ON p.id = cat.product_id
+
+      -- Product Reviews
+      LEFT JOIN (
+        SELECT 
+          product_id,
+          ROUND(COALESCE(AVG(rating), 0)::NUMERIC, 1) AS rating,
+          COUNT(DISTINCT review_id) AS review_count
+        FROM product_review
+        WHERE status = 'APPROVED'
+        GROUP BY product_id
+      ) r ON p.id = r.product_id
+
+      ORDER BY p.id DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    params.push(limitNum, offset);
+
+    // Count query
+    let countQuery = `
+      SELECT COUNT(DISTINCT p.id) AS total
+      FROM product p
+      LEFT JOIN product_categories pc ON p.id = pc.product_id
+      WHERE 1=1
+    `;
+
+    const countParams: any[] = [];
+    let countParamIndex = 1;
+
+    if (status && status !== "") {
+      countQuery += ` AND p.status = $${countParamIndex}`;
+      countParams.push(status);
+      countParamIndex++;
+    }
+
+    if (category_id) {
+      countQuery += ` AND pc.category_id = $${countParamIndex}`;
+      countParams.push(category_id);
+      countParamIndex++;
+    }
+
+    if (search && search !== "") {
+      countQuery += ` AND (p.name ILIKE $${countParamIndex} OR p.description ILIKE $${countParamIndex})`;
+      countParams.push(`%${search}%`);
+      countParamIndex++;
+    }
+
+    const [productsResult, countResult] = await Promise.all([
+      pool.query(query, params),
+      pool.query(countQuery, countParams),
+    ]);
+
+    const products = productsResult.rows;
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    const response = {
+      data: products,
+      pagination: {
+        currentPage: pageNum,
+        limit: limitNum,
+        total,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
+    };
+
+    reply.send(successResponse(response, "Products retrieved successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+
 export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { category_id, search } = req.body as {

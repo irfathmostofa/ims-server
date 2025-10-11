@@ -49,9 +49,9 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post("/delete-uom", deleteUOM);
 
   // Product
-  app.post("/products", createProduct);
+  app.post("/products", { preHandler: [app.authenticate] }, createProduct);
   app.post("/bulk-products", bulkCreateProducts);
-  app.get("/products", getAllProducts);
+  app.post("/get-all-products", getAllProducts);
   app.post("/get-pos-products", getProductsPOS);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);
