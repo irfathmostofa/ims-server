@@ -548,7 +548,7 @@ export async function getSetupData(
  */
 export async function getSetupByKey(
   req: FastifyRequest<{
-    Querystring: {
+    Body: {
       setup_code?: string;
       key_name?: string;
       group_name?: string;
@@ -557,7 +557,7 @@ export async function getSetupByKey(
   reply: FastifyReply
 ) {
   try {
-    const { setup_code, key_name, group_name } = req.query;
+    const { setup_code, key_name, group_name } = req.body;
 
     if (!setup_code && !key_name) {
       return reply.status(400).send({
