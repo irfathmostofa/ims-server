@@ -439,3 +439,31 @@ CREATE TABLE product_review_image (
   review_id INT REFERENCES product_review(id),
   image_url TEXT
 );
+-- TEMPLATE
+CREATE TABLE template (
+    id SERIAL PRIMARY KEY,
+    template_name VARCHAR(100) NOT NULL,
+    description TEXT,
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A', 'I')),
+    created_by INT REFERENCES users(id),
+    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_update INT REFERENCES users(id),
+    last_update_date TIMESTAMP
+);
+
+-- TEMPLATE_SECTION
+CREATE TABLE template_section (
+    id SERIAL PRIMARY KEY,
+    template_id INT REFERENCES template(id) ON DELETE CASCADE,
+    section_name VARCHAR(100) NOT NULL,
+    section_key VARCHAR(50) NOT NULL,
+    section_type VARCHAR(50),
+    config_data JSONB,
+    sort_order INT DEFAULT 0,
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A', 'I')),
+    created_by INT REFERENCES users(id),
+    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_update INT REFERENCES users(id),
+    last_update_date TIMESTAMP
+);
+

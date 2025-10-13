@@ -55,7 +55,11 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.get("/get-activity", getActivityLogs);
   app.get("/get-activity-stats", getActivityStats);
   // setupData
-  app.post("/create-setup", createSetupData);
+  app.post(
+    "/create-setup",
+    { preHandler: [app.authenticate] },
+    createSetupData
+  );
   app.post("/create-setup-bulk", bulkCreateSetupData);
   app.get("/get-setup-data", getAllSetupData);
   app.get("/get-setup-data-grouped", getGroupedSetupData);

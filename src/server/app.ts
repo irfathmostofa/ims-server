@@ -1,7 +1,6 @@
 import Fastify from "fastify";
 import fastifyCors from "@fastify/cors";
 import fastifyHelmet from "@fastify/helmet";
-import jwt from "fastify-jwt";
 import dotenv from "dotenv";
 import authPlugin from "../core/plugins/auth";
 import userRoutes from "../modules/users/user.routes";
@@ -14,6 +13,7 @@ import salesRoutes from "../modules/sales/sale.routes";
 import poRoutes from "../modules/Purchase-Order/po.routes";
 import coaRoutes from "../modules/coa/coa.routes";
 import fastifyOauth2 from "@fastify/oauth2";
+import templateRoutes from "../modules/template/template.routes";
 
 dotenv.config();
 
@@ -38,7 +38,6 @@ app.register(fastifyOauth2, {
   startRedirectPath: "/auth/google/login", // user clicks login → redirect to Google
   callbackUri: "http://localhost:3000/auth/google/callback", // your backend callback URL
 });
-// app.register(jwt, { secret: process.env.JWT_SECRET || "secret" });
 
 // Routes
 app.register(userRoutes, { prefix: "/users" });
@@ -50,4 +49,5 @@ app.register(inventoryRoutes, { prefix: "/inventory" });
 app.register(salesRoutes, { prefix: "/sales" });
 app.register(poRoutes, { prefix: "/po" });
 app.register(coaRoutes, { prefix: "/coa" });
+app.register(templateRoutes, { prefix: "/template" });
 export default app;
