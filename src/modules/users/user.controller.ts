@@ -78,9 +78,9 @@ export async function createCustomer(req: FastifyRequest, reply: FastifyReply) {
 
 export async function updateCustomer(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { customer_id } = req.params as { customer_id: number };
+    const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
-    const updated = await customerModel.update(customer_id, fields);
+    const updated = await customerModel.update(id, fields);
     reply.send(successResponse(updated, "User updated successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -144,9 +144,9 @@ export async function updateCustomerAddress(
   reply: FastifyReply
 ) {
   try {
-    const { address_id } = req.params as { address_id: number };
+    const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
-    const updated = await customerAddressModel.update(address_id, fields);
+    const updated = await customerAddressModel.update(id, fields);
     reply.send(successResponse(updated, "Address updated successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -158,8 +158,8 @@ export async function deleteCustomerAddress(
   reply: FastifyReply
 ) {
   try {
-    const { address_id } = req.body as { address_id: number };
-    const deleted = await customerAddressModel.delete(address_id);
+    const { id } = req.body as { id: number };
+    const deleted = await customerAddressModel.delete(id);
     reply.send(successResponse(deleted, "Address deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -171,11 +171,8 @@ export async function getCustomerAddress(
   reply: FastifyReply
 ) {
   try {
-    const { customer_id } = req.params as { customer_id: number };
-    const address = await customerAddressModel.findByField(
-      "customer_id",
-      customer_id
-    );
+    const { id } = req.params as { id: number };
+    const address = await customerAddressModel.findByField("id", id);
     reply.send(successResponse(address));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
