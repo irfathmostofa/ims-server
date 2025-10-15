@@ -27,7 +27,7 @@ export default async function userRoutes(app: FastifyInstance) {
   app.post("/delete-customer", deleteCustomer);
 
   app.post("/create-customer-address", createCustomerAddress);
-  app.post("/update-customer-address/:address_id", updateCustomerAddress);
+  app.post("/update-customer-address/:id", updateCustomerAddress);
   app.post("/update-customer-password", updateCustomerPassword);
   app.post("/delete-customer-address", deleteCustomerAddress);
   app.get("/get-customer-address/:id", getCustomerAddress);
