@@ -598,3 +598,15 @@ export async function cancelOrder(
     client.release();
   }
 }
+export async function getCustomerOrder(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { id } = req.params as { id: number };
+    const order = await orderOnlineModel.findByField("customer_id", id);
+    reply.send(successResponse(order));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}

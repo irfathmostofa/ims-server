@@ -25,8 +25,8 @@ export const setupDataModel = new CrudModel(
 );
 export const deliveryMethodModel = new CrudModel(
   "delivery_method",
-  ["code", "name", "api_base_url", "api_key", "api_secret", "auth_token"],
-  [],
+  ["code", "name"],
+  ["api_base_url", "api_key", "api_secret", "auth_token"],
   ["token_expiry", "status", "created_by", "creation_date"]
 );
 
