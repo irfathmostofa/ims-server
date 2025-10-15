@@ -172,7 +172,7 @@ export async function getCustomerAddress(
 ) {
   try {
     const { id } = req.params as { id: number };
-    const address = await customerAddressModel.findByField("id", id);
+    const address = await customerAddressModel.findByField("customer_id", id);
     reply.send(successResponse(address));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
