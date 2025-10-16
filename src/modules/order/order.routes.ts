@@ -9,7 +9,7 @@ import {
 } from "./order.controller";
 
 export default async function orderRoutes(app: FastifyInstance) {
-  app.addHook("onRequest", app.authenticate);
+  // app.addHook("onRequest", app.authenticate);
   app.post("/create-order", createOnlineOrder);
   app.post("/update-order-status", updateOrderStatus);
   app.post("/update-delivery-status", updateDeliveryStatus);

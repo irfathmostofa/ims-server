@@ -79,7 +79,7 @@ export async function createOnlineOrder(
 
     // Generate order code
     const code = await generatePrefixedId("order_online", "ORD");
-
+    console.log(netAmount);
     // Create order
     const order = await orderOnlineModel.create(
       {
@@ -90,13 +90,12 @@ export async function createOnlineOrder(
         payment_method_id,
         total_amount: totalAmount,
         discount_amount,
-        net_amount: netAmount,
+        // net_amount: netAmount || 0,
         is_cod,
         order_status: "PENDING",
-        payment_status: is_cod ? "PENDING" : "UNPAID",
+        payment_status: is_cod ? "UNPAID" : "PAID",
         status: "A",
-        created_by: userId,
-        creation_date: new Date(),
+        created_at: new Date(),
       },
       client
     );
@@ -123,7 +122,7 @@ export async function createOnlineOrder(
         order_id: orderId,
         delivery_method_id,
         tracking_code: null,
-        delivery_status: "PENDING",
+        delivery_status: "ASSIGNED",
         cod_amount: is_cod ? netAmount : 0,
         cod_collected: false,
         status: "A",
