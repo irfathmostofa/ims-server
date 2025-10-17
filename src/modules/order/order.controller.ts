@@ -63,7 +63,6 @@ export async function createOnlineOrder(
       discount_amount = 0,
       is_cod = false,
     } = req.body;
-
     const userId = (req.user as any)?.id;
 
     // Validate items
@@ -79,7 +78,6 @@ export async function createOnlineOrder(
 
     // Generate order code
     const code = await generatePrefixedId("order_online", "ORD");
-    console.log(netAmount);
     // Create order
     const order = await orderOnlineModel.create(
       {
@@ -90,7 +88,6 @@ export async function createOnlineOrder(
         payment_method_id,
         total_amount: totalAmount,
         discount_amount,
-        // net_amount: netAmount || 0,
         is_cod,
         order_status: "PENDING",
         payment_status: is_cod ? "UNPAID" : "PAID",
@@ -134,9 +131,9 @@ export async function createOnlineOrder(
     await client.query("COMMIT");
 
     // Fetch complete order
-    const completeOrder = await getOrderById(orderId, client);
+    // const completeOrder = await getOrderById(orderId, client);
 
-    reply.send(successResponse(completeOrder, "Order created successfully"));
+    reply.send(successResponse(order, "Order created successfully"));
   } catch (err: any) {
     await client.query("ROLLBACK");
     reply.status(400).send({ success: false, message: err.message });
