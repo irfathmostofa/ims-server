@@ -286,12 +286,13 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         cat.categories,
         p.total_stock,
         CASE 
-          WHEN p.created_at >= NOW() - INTERVAL '30 days' THEN 'New'
+          WHEN p.created_at >= NOW() - INTERVAL '10 days' THEN 'New'
           ELSE NULL
         END AS badge,
         r.rating,
         r.review_count,
-        p.total_sales
+        p.total_sales,
+        pv.primary_variant_id
       FROM (
         SELECT 
           p.id,
@@ -339,7 +340,14 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
       ) p
       LEFT JOIN uom u ON p.uom_id = u.id
 
-      -- Product Images
+      LEFT JOIN (
+        SELECT DISTINCT ON (product_id)
+          product_id,
+          id AS primary_variant_id
+        FROM product_variant
+        WHERE status = 'A'
+        ORDER BY product_id DESC, id ASC
+      ) pv ON p.id = pv.product_id
       LEFT JOIN (
         SELECT 
           product_id,
@@ -356,7 +364,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         GROUP BY product_id
       ) pi ON p.id = pi.product_id
 
-      -- Product Categories
+      -- ✅ Product Categories
       LEFT JOIN (
         SELECT 
           pc.product_id,
@@ -376,7 +384,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         GROUP BY pc.product_id
       ) cat ON p.id = cat.product_id
 
-      -- Product Reviews
+      -- ✅ Product Reviews
       LEFT JOIN (
         SELECT 
           product_id,
@@ -392,7 +400,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
 
     params.push(limitNum, offset);
 
-    // Count query
+    // ✅ Count query for pagination
     let countQuery = `
       SELECT COUNT(DISTINCT p.id) AS total
       FROM product p
