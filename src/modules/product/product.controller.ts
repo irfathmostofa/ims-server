@@ -175,7 +175,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
 
     // Get user ID safely
     const userId = (req.user as { id: number } | null)?.id;
-    console.log(userId, "product create user id");
+
     // Create product
     productData.code = await generatePrefixedId("product", "PROD");
     productData.created_by = userId;
@@ -193,7 +193,18 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
     }
 
     // Create variants + auto barcodes
-    for (const v of variants) {
+    // If no variants provided, create a default one
+    const variantsToCreate =
+      variants && variants.length > 0
+        ? variants
+        : [
+            {
+              name: productData.name, // Use product name as default variant name
+              additional_price: 0,
+            },
+          ];
+
+    for (const v of variantsToCreate) {
       v.code = await generatePrefixedId("product_variant", "VAR");
       v.product_id = product.id;
       v.created_by = userId;
