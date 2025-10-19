@@ -569,7 +569,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
           WHERE pc.product_id = p.id
         ), '[]') AS categories,
 
-        -- 🟢 Variants with barcodes and stock
+        -- 🟢 Variants (with barcodes + stock)
         COALESCE((
           SELECT JSON_AGG(
             JSON_BUILD_OBJECT(
@@ -613,7 +613,35 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
           )
           FROM product_image i
           WHERE i.product_id = p.id
-        ), '[]') AS images
+        ), '[]') AS images,
+
+        -- 🟢 Review Summary
+        COALESCE((
+          SELECT JSON_BUILD_OBJECT(
+            'average_rating', ROUND(AVG(r.rating)::numeric, 1),
+            'total_reviews', COUNT(*)
+          )
+          FROM product_review r
+          WHERE r.product_id = p.id
+        ), JSON_BUILD_OBJECT('average_rating', 0, 'total_reviews', 0)) AS review_summary,
+
+        -- 🟢 Reviews
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', r.id,
+              'customer_name', c.full_name,
+              'rating', r.rating,
+              'title', r.title,
+              'comment', r.comment,
+              'helpful', r.helpful_count,
+              'created_at', TO_CHAR(r.created_at, 'YYYY-MM-DD HH24:MI')
+            ) ORDER BY r.created_at DESC
+          )
+          FROM product_review r
+          LEFT JOIN customer c ON c.id = r.customer_id
+          WHERE r.product_id = p.id
+        ), '[]') AS reviews
 
       FROM product p
       LEFT JOIN uom u ON u.id = p.uom_id
@@ -636,6 +664,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
       data: rows[0],
     });
   } catch (err: any) {
+    console.error("Error in getProductById:", err);
     return reply.status(500).send({
       success: false,
       message: err.message,
