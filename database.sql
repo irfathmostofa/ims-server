@@ -92,7 +92,7 @@ CREATE TABLE product (
     description TEXT,
     cost_price DECIMAL(12,2) NOT NULL,
     selling_price DECIMAL(12,2) NOT NULL,
-    old_price DECIMAL(12,2) NOT NULL,
+    regular_price DECIMAL(12,2) NOT NULL,
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
     created_by INT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

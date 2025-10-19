@@ -542,104 +542,104 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = req.params as { id: string };
 
-    // Get product with related data
     const query = `
       SELECT 
-        p.*,
+        p.id,
+        p.code,
+        p.name,
+        p.description,
+        p.cost_price,
+        p.selling_price,
+        p.regular_price,
+        p.status,
         u.name AS uom_name,
         u.symbol AS uom_symbol,
-        COALESCE(
-          JSON_AGG(
+
+        -- 🟢 Categories
+        COALESCE((
+          SELECT JSON_AGG(
             JSON_BUILD_OBJECT(
               'id', c.id,
               'name', c.name,
               'is_primary', pc.is_primary
             )
-          ) FILTER (WHERE c.id IS NOT NULL), '[]'
-        ) AS categories
+          )
+          FROM product_categories pc
+          JOIN category c ON pc.category_id = c.id
+          WHERE pc.product_id = p.id
+        ), '[]') AS categories,
+
+        -- 🟢 Variants with barcodes and stock
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', v.id,
+              'code', v.code,
+              'name', v.name,
+              'additional_price', v.additional_price,
+              'status', v.status,
+              'barcodes', (
+                SELECT JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                    'id', b.id,
+                    'barcode', b.barcode,
+                    'type', b.type,
+                    'is_primary', b.is_primary
+                  )
+                )
+                FROM product_barcode b
+                WHERE b.product_variant_id = v.id
+              ),
+              'stock', (
+                SELECT COALESCE(SUM(s.quantity), 0)
+                FROM inventory_stock s
+                WHERE s.product_variant_id = v.id
+              )
+            )
+          )
+          FROM product_variant v
+          WHERE v.product_id = p.id
+        ), '[]') AS variants,
+
+        -- 🟢 Product Images
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', i.id,
+              'url', i.url,
+              'alt_text', i.alt_text,
+              'is_primary', i.is_primary
+            )
+          )
+          FROM product_image i
+          WHERE i.product_id = p.id
+        ), '[]') AS images
+
       FROM product p
-      LEFT JOIN uom u ON p.uom_id = u.id
-      LEFT JOIN product_categories pc ON p.id = pc.product_id
-      LEFT JOIN category c ON pc.category_id = c.id
+      LEFT JOIN uom u ON u.id = p.uom_id
       WHERE p.id = $1
-      GROUP BY p.id, u.id;
+      GROUP BY p.id, u.name, u.symbol;
     `;
 
     const { rows } = await pool.query(query, [id]);
+
     if (rows.length === 0) {
-      return reply
-        .status(404)
-        .send({ success: false, message: "Product not found" });
+      return reply.status(404).send({
+        success: false,
+        message: "Product not found",
+      });
     }
 
-    const product = rows[0];
-
-    // Get variants
-    const variants = await productVariantModel.findByField("product_id", id);
-
-    // Get images
-    const images = await productImageModel.findByField("product_id", id);
-
-    // Get barcodes for all variants
-    const barcodes = await Promise.all(
-      variants.map(async (variant: any) => {
-        const variantBarcodes = await productBarcodeModel.findByField(
-          "product_variant_id",
-          variant.id
-        );
-        return { variant_id: variant.id, barcodes: variantBarcodes };
-      })
-    );
-
-    // ✅ Get product reviews
-    const reviewQuery = `
-      SELECT 
-        r.id,
-        r.rating,
-        r.title,
-        r.comment,
-        r.helpful_count AS helpful,
-        TO_CHAR(r.created_at, 'YYYY-MM-DD') AS created_at,
-        c.full_name AS customer_name,
-        COALESCE(
-          JSON_AGG(
-            JSON_BUILD_OBJECT(
-              'id', ri.id,
-              'image_url', ri.image_url
-            )
-          ) FILTER (WHERE ri.id IS NOT NULL), '[]'
-        ) AS images
-      FROM product_review r
-      LEFT JOIN customer c ON r.customer_id = c.id
-      LEFT JOIN product_review_image ri ON ri.id = r.id
-      WHERE r.product_id = $1
-      GROUP BY r.id, c.full_name, r.rating, r.title, r.comment, r.helpful_count, r.created_at
-      ORDER BY r.created_at DESC;
-    `;
-    const { rows: reviews } = await pool.query(reviewQuery, [id]);
-
-    // ✅ Calculate overall rating and review count
-    const reviewSummary =
-      reviews.length > 0
-        ? {
-            average_rating:
-              reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length,
-            total_reviews: reviews.length,
-          }
-        : { average_rating: null, total_reviews: 0 };
-
-    const result = {
-      ...product,
-      variants,
-      images,
-      barcodes,
-      reviews,
-      review_summary: reviewSummary,
-    };
-
-    reply.send(successResponse(result, "Product retrieved successfully"));
+    return reply.send({
+      success: true,
+      message: "Product retrieved successfully",
+      data: rows[0],
+    });
   } catch (err: any) {
-    reply.status(400).send({ success: false, message: err.message });
+    return reply.status(500).send({
+      success: false,
+      message: err.message,
+    });
   }
 }
 
@@ -651,8 +651,15 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
 
     await client.query("BEGIN");
 
-    // 1. Update main product fields
-    const updatedProduct = await productModel.update(parseInt(id), fields);
+    // ✅ Separate relational fields from main product fields
+    const { categories, variants, images, barcodes, ...productFields } = fields;
+
+    // 1️⃣ Update main product table
+    const updatedProduct = await productModel.update(
+      parseInt(id),
+      productFields,
+      client
+    );
     if (!updatedProduct) {
       await client.query("ROLLBACK");
       return reply
@@ -660,62 +667,61 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
         .send({ success: false, message: "Product not found" });
     }
 
-    // 2. Handle categories
-    if (fields.categories && Array.isArray(fields.categories)) {
-      // Remove existing categories
+    // 2️⃣ Update categories
+    if (categories && Array.isArray(categories)) {
       await client.query(
         "DELETE FROM product_categories WHERE product_id = $1",
         [id]
       );
-      // Insert new categories
-      for (const cat of fields.categories) {
-        await productCategoryModel.create({
-          product_id: id,
-          category_id: cat.id,
-          is_primary: cat.is_primary || false,
-          created_by: fields.updated_by || null,
-        });
+      for (const cat of categories) {
+        await productCategoryModel.create(
+          {
+            product_id: id,
+            category_id: cat.id,
+            is_primary: cat.is_primary || false,
+            created_by: fields.updated_by || null,
+          },
+          client
+        );
       }
     }
 
-    // 3. Handle variants
-    if (fields.variants && Array.isArray(fields.variants)) {
-      for (const variant of fields.variants) {
+    // 3️⃣ Update variants
+    if (variants && Array.isArray(variants)) {
+      for (const variant of variants) {
         if (variant.id) {
-          await productVariantModel.update(variant.id, variant);
+          await productVariantModel.update(variant.id, variant, client);
         } else {
-          await productVariantModel.create({
-            product_id: id,
-            ...variant,
-          });
+          variant.code = await generatePrefixedId("product_variant", "VAR");
+          await productVariantModel.create(
+            { product_id: id, ...variant },
+            client
+          );
         }
       }
     }
 
-    // 4. Handle images
-    if (fields.images && Array.isArray(fields.images)) {
-      for (const image of fields.images) {
+    // 4️⃣ Update images
+    if (images && Array.isArray(images)) {
+      for (const image of images) {
         if (image.id) {
-          // if primary, reset others
           if (image.is_primary) {
             await client.query(
               "UPDATE product_image SET is_primary = FALSE WHERE product_id = $1 AND id != $2",
               [id, image.id]
             );
           }
-          await productImageModel.update(image.id, image);
+          await productImageModel.update(image.id, image, client);
         } else {
-          await productImageModel.create({
-            product_id: id,
-            ...image,
-          });
+          image.code = await generatePrefixedId("product_image", "IMG");
+          await productImageModel.create({ product_id: id, ...image }, client);
         }
       }
     }
 
-    // 5. Handle barcodes
-    if (fields.barcodes && Array.isArray(fields.barcodes)) {
-      for (const group of fields.barcodes) {
+    // 5️⃣ Update barcodes
+    if (barcodes && Array.isArray(barcodes)) {
+      for (const group of barcodes) {
         for (const barcode of group.barcodes) {
           if (barcode.id) {
             if (barcode.is_primary) {
@@ -724,12 +730,12 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
                 [group.variant_id, barcode.id]
               );
             }
-            await productBarcodeModel.update(barcode.id, barcode);
+            await productBarcodeModel.update(barcode.id, barcode, client);
           } else {
-            await productBarcodeModel.create({
-              product_variant_id: group.variant_id,
-              ...barcode,
-            });
+            await productBarcodeModel.create(
+              { product_variant_id: group.variant_id, ...barcode },
+              client
+            );
           }
         }
       }
@@ -737,15 +743,15 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
 
     await client.query("COMMIT");
 
-    reply.send(
+    return reply.send(
       successResponse(
         updatedProduct,
-        "Product updated successfully (with variants, categories, barcodes, and images)"
+        "Product updated successfully (with categories, variants, images, and barcodes)"
       )
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
-    reply.status(400).send({ success: false, message: err.message });
+    return reply.status(400).send({ success: false, message: err.message });
   } finally {
     client.release();
   }
