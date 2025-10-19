@@ -313,6 +313,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
           p.description,
           p.cost_price,
           p.selling_price,
+          p.regular_price,
           p.status,
           p.uom_id,
           p.created_at,
@@ -348,7 +349,17 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
     }
 
     query += `
-        GROUP BY p.id, p.code, p.name, p.description, p.cost_price, p.selling_price, p.status, p.uom_id, p.created_at
+        GROUP BY 
+          p.id, 
+          p.code, 
+          p.name, 
+          p.description, 
+          p.cost_price, 
+          p.selling_price, 
+          p.regular_price, 
+          p.status, 
+          p.uom_id, 
+          p.created_at
       ) p
       LEFT JOIN uom u ON p.uom_id = u.id
 
@@ -360,6 +371,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         WHERE status = 'A'
         ORDER BY product_id DESC, id ASC
       ) pv ON p.id = pv.product_id
+
       LEFT JOIN (
         SELECT 
           product_id,
@@ -376,7 +388,6 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         GROUP BY product_id
       ) pi ON p.id = pi.product_id
 
-      -- ✅ Product Categories
       LEFT JOIN (
         SELECT 
           pc.product_id,
@@ -396,7 +407,6 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         GROUP BY pc.product_id
       ) cat ON p.id = cat.product_id
 
-      -- ✅ Product Reviews
       LEFT JOIN (
         SELECT 
           product_id,
@@ -450,19 +460,22 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
     const total = parseInt(countResult.rows[0].total);
     const totalPages = Math.ceil(total / limitNum);
 
-    const response = {
-      data: products,
-      pagination: {
-        currentPage: pageNum,
-        limit: limitNum,
-        total,
-        totalPages,
-        hasNextPage: pageNum < totalPages,
-        hasPrevPage: pageNum > 1,
-      },
-    };
-
-    reply.send(successResponse(response, "Products retrieved successfully"));
+    reply.send(
+      successResponse(
+        {
+          data: products,
+          pagination: {
+            currentPage: pageNum,
+            limit: limitNum,
+            total,
+            totalPages,
+            hasNextPage: pageNum < totalPages,
+            hasPrevPage: pageNum > 1,
+          },
+        },
+        "Products retrieved successfully"
+      )
+    );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
