@@ -291,6 +291,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         p.description,
         p.cost_price,
         p.selling_price,
+        p.regular_price,
         p.status,
         u.name AS uom_name,
         pi.images,
