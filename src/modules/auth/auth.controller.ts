@@ -274,7 +274,7 @@ export async function sendOTP(
 
     // Send OTP email
     const result = await EmailService.sendOTP(email, name);
-
+    console.log(result);
     if (!result.success) {
       return reply.code(500).send({
         success: false,

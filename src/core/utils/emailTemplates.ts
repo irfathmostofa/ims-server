@@ -88,7 +88,7 @@ export const emailTemplates = {
             </div>
             
             <p style="text-align: center;">
-              <a href="https://rasianmart.com" class="button">Start Shopping</a>
+              <a href="https://inventory-mart.netlify.app/" class="button">Start Shopping</a>
             </p>
             
             <p>If you have any questions, our support team is here to help!</p>
