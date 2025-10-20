@@ -1,6 +1,9 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { successResponse } from "../../core/utils/response";
-import { generatePrefixedId } from "../../core/models/idGenerator";
+import {
+  generateOrderId,
+  generatePrefixedId,
+} from "../../core/models/idGenerator";
 import {
   orderDeliveryModel,
   orderItemOnlineModel,
@@ -77,7 +80,7 @@ export async function createOnlineOrder(
     );
 
     // Generate order code
-    const code = await generatePrefixedId("order_online", "ORD");
+    const code = generateOrderId();
     // Create order
     const order = await orderOnlineModel.create(
       {
@@ -316,27 +319,42 @@ export async function getAllOrders(
     );
     const totalCount = parseInt(countResult.rows[0].count);
 
-    // Get orders
+    // Get orders with items
     const ordersResult = await pool.query(
-      `SELECT 
+      `
+      SELECT 
         o.*,
-        c.name as customer_name,
-        c.email as customer_email,
-        c.phone as customer_phone,
-        dm.name as delivery_method_name,
-        pm.name as payment_method_name,
+        c.full_name AS customer_name,
+        c.email AS customer_email,
+        c.phone AS customer_phone,
+        dm.name AS delivery_method_name,
+        pm.name AS payment_method_name,
         (
-          SELECT COUNT(*) 
-          FROM order_item_online 
-          WHERE order_id = o.id
-        ) as item_count
+          SELECT json_agg(
+            json_build_object(
+              'id', oi.id,
+              'product_variant_id', oi.product_variant_id,
+              'product_name', p.name,
+              'variant_name', pv.name,
+              'quantity', oi.quantity,
+              'unit_price', oi.unit_price,
+              'discount', oi.discount,
+              'subtotal', oi.subtotal
+            )
+          )
+          FROM order_item_online oi
+          LEFT JOIN product_variant pv ON oi.product_variant_id = pv.id
+          LEFT JOIN product p ON pv.product_id = p.id
+          WHERE oi.order_id = o.id
+        ) AS items
       FROM order_online o
       LEFT JOIN customer c ON o.customer_id = c.id
       LEFT JOIN delivery_method dm ON o.delivery_method_id = dm.id
       LEFT JOIN payment_method pm ON o.payment_method_id = pm.id
       ${whereClause}
-      ORDER BY o.creation_date DESC
-      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      ORDER BY o.created_at DESC
+      LIMIT $${paramIndex++} OFFSET $${paramIndex}
+      `,
       [...values, parseInt(limit), offset]
     );
 
