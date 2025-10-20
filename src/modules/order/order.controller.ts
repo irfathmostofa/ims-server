@@ -256,7 +256,7 @@ export async function getOrder(
 
 export async function getAllOrders(
   req: FastifyRequest<{
-    Querystring: {
+    Body: {
       page?: string;
       limit?: string;
       customer_id?: string;
@@ -277,7 +277,7 @@ export async function getAllOrders(
       payment_status,
       from_date,
       to_date,
-    } = req.query;
+    } = req.body;
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const conditions: string[] = [];
