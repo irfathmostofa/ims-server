@@ -7,6 +7,10 @@ import {
   receiveProductTransfer,
   cancelProductTransfer,
   getStockAdjustments,
+  saleStock,
+  transferStock,
+  adjustStock,
+  returnStock,
 } from "./inventory.controller";
 
 export async function inventoryRoutes(app: FastifyInstance) {
@@ -21,4 +25,9 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.post("/create-transfer", createProductTransfer);
   app.post("/receive-transfer/:id/receive", receiveProductTransfer);
   app.post("/cancel-transfer/:id/cancel", cancelProductTransfer);
+
+  app.post("/sale-stock", saleStock);
+  app.post("/transfer-stock", transferStock);
+  app.post("/adjust-stock", adjustStock);
+  app.post("/return-stock", returnStock);
 }

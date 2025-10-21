@@ -309,3 +309,312 @@ export async function getStockAdjustments(
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+
+export async function receivePurchaseStock(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const client = await pool.connect();
+  const { branch_id, product_variant_id, quantity, grn_id } = req.body as any;
+
+  // --- Basic validation ---
+  if (!branch_id || !product_variant_id || !grn_id)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Missing required fields" });
+  if (isNaN(quantity) || quantity <= 0)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Quantity must be greater than 0" });
+
+  try {
+    await client.query("BEGIN");
+
+    // Validate branch and product existence
+    const [branchRes, prodRes] = await Promise.all([
+      client.query(`SELECT id FROM branch WHERE id = $1`, [branch_id]),
+      client.query(`SELECT id FROM product_variant WHERE id = $1`, [
+        product_variant_id,
+      ]),
+    ]);
+    if (branchRes.rowCount === 0) throw new Error("Invalid branch_id");
+    if (prodRes.rowCount === 0) throw new Error("Invalid product_variant_id");
+
+    // --- Transaction ---
+    await client.query(
+      `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
+       VALUES ($1, $2, 'PURCHASE', $3, $4, 'IN')`,
+      [branch_id, product_variant_id, grn_id, quantity]
+    );
+
+    // Update or Insert stock
+    const result = await client.query(
+      `UPDATE inventory_stock
+       SET quantity = quantity + $1
+       WHERE branch_id = $2 AND product_variant_id = $3
+       RETURNING id`,
+      [quantity, branch_id, product_variant_id]
+    );
+
+    if (result.rowCount === 0) {
+      await client.query(
+        `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity)
+         VALUES ($1, $2, $3)`,
+        [branch_id, product_variant_id, quantity]
+      );
+    }
+
+    await client.query("COMMIT");
+    reply.send({ success: true, message: "Stock received successfully" });
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    reply.status(500).send({ success: false, error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+export async function saleStock(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
+  const { branch_id, product_variant_id, quantity, sale_id } = req.body as any;
+
+  if (!branch_id || !product_variant_id || !sale_id)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Missing required fields" });
+  if (isNaN(quantity) || quantity <= 0)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Quantity must be greater than 0" });
+
+  try {
+    await client.query("BEGIN");
+
+    // Validate stock availability
+    const stockRes = await client.query(
+      `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
+      [branch_id, product_variant_id]
+    );
+
+    if (stockRes.rowCount === 0 || stockRes.rows[0].quantity < quantity) {
+      throw new Error("Insufficient stock to complete sale");
+    }
+
+    // Record transaction
+    await client.query(
+      `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
+       VALUES ($1, $2, 'SALE', $3, $4, 'OUT')`,
+      [branch_id, product_variant_id, sale_id, quantity]
+    );
+
+    // Deduct from stock
+    await client.query(
+      `UPDATE inventory_stock SET quantity = quantity - $1 WHERE branch_id = $2 AND product_variant_id = $3`,
+      [quantity, branch_id, product_variant_id]
+    );
+
+    await client.query("COMMIT");
+    reply.send({ success: true, message: "Sale stock updated successfully" });
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    reply.status(500).send({ success: false, error: error.message });
+  } finally {
+    client.release();
+  }
+}
+
+export async function transferStock(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
+  const { from_branch, to_branch, product_variant_id, quantity, transfer_id } =
+    req.body as any;
+
+  if (!from_branch || !to_branch || !product_variant_id || !transfer_id)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Missing required fields" });
+  if (isNaN(quantity) || quantity <= 0)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Quantity must be greater than 0" });
+  if (from_branch === to_branch)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Cannot transfer to the same branch" });
+
+  try {
+    await client.query("BEGIN");
+
+    // Check source stock
+    const stock = await client.query(
+      `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
+      [from_branch, product_variant_id]
+    );
+    if (stock.rowCount === 0 || stock.rows[0].quantity < quantity)
+      throw new Error("Insufficient stock in source branch");
+
+    // OUT
+    await client.query(
+      `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
+       VALUES ($1, $2, 'TRANSFER', $3, $4, 'OUT')`,
+      [from_branch, product_variant_id, transfer_id, quantity]
+    );
+    await client.query(
+      `UPDATE inventory_stock SET quantity = quantity - $1 WHERE branch_id = $2 AND product_variant_id = $3`,
+      [quantity, from_branch, product_variant_id]
+    );
+
+    // IN
+    await client.query(
+      `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
+       VALUES ($1, $2, 'TRANSFER', $3, $4, 'IN')`,
+      [to_branch, product_variant_id, transfer_id, quantity]
+    );
+
+    const dest = await client.query(
+      `UPDATE inventory_stock SET quantity = quantity + $1 WHERE branch_id = $2 AND product_variant_id = $3 RETURNING id`,
+      [quantity, to_branch, product_variant_id]
+    );
+    if (dest.rowCount === 0) {
+      await client.query(
+        `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity) VALUES ($1, $2, $3)`,
+        [to_branch, product_variant_id, quantity]
+      );
+    }
+
+    await client.query("COMMIT");
+    reply.send({ success: true, message: "Stock transferred successfully" });
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    reply.status(500).send({ success: false, error: error.message });
+  } finally {
+    client.release();
+  }
+}
+
+export async function adjustStock(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
+  const {
+    branch_id,
+    product_variant_id,
+    quantity,
+    adjustment_type,
+    reason,
+    user_id,
+  } = req.body as any;
+
+  if (!branch_id || !product_variant_id || !adjustment_type || !user_id)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Missing required fields" });
+  if (isNaN(quantity) || quantity <= 0)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Quantity must be greater than 0" });
+  if (!["IN", "OUT"].includes(adjustment_type))
+    return reply
+      .status(400)
+      .send({ success: false, message: "Invalid adjustment_type" });
+
+  try {
+    await client.query("BEGIN");
+
+    // For OUT, check stock before reducing
+    if (adjustment_type === "OUT") {
+      const stock = await client.query(
+        `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
+        [branch_id, product_variant_id]
+      );
+      if (stock.rowCount === 0 || stock.rows[0].quantity < quantity)
+        throw new Error("Insufficient stock for adjustment OUT");
+    }
+
+    // Insert into adjustment + transaction
+    const adj = await client.query(
+      `INSERT INTO stock_adjustment (branch_id, product_variant_id, adjustment_type, quantity, reason, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [
+        branch_id,
+        product_variant_id,
+        adjustment_type,
+        quantity,
+        reason,
+        user_id,
+      ]
+    );
+
+    await client.query(
+      `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
+       VALUES ($1, $2, 'ADJUSTMENT', $3, $4, $5)`,
+      [branch_id, product_variant_id, adj.rows[0].id, quantity, adjustment_type]
+    );
+
+    const op = adjustment_type === "IN" ? "+" : "-";
+    await client.query(
+      `UPDATE inventory_stock SET quantity = quantity ${op} $1 WHERE branch_id = $2 AND product_variant_id = $3`,
+      [quantity, branch_id, product_variant_id]
+    );
+
+    await client.query("COMMIT");
+    reply.send({ success: true, message: "Stock adjusted successfully" });
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    reply.status(500).send({ success: false, error: error.message });
+  } finally {
+    client.release();
+  }
+}
+
+export async function returnStock(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
+  const { branch_id, product_variant_id, quantity, return_type, reference_id } =
+    req.body as any;
+
+  if (!branch_id || !product_variant_id || !return_type || !reference_id)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Missing required fields" });
+  if (isNaN(quantity) || quantity <= 0)
+    return reply
+      .status(400)
+      .send({ success: false, message: "Quantity must be greater than 0" });
+  if (!["SALE_RETURN", "PURCHASE_RETURN"].includes(return_type))
+    return reply
+      .status(400)
+      .send({ success: false, message: "Invalid return_type" });
+
+  try {
+    await client.query("BEGIN");
+
+    const direction = return_type === "SALE_RETURN" ? "IN" : "OUT";
+
+    // For PURCHASE_RETURN (OUT), validate stock
+    if (direction === "OUT") {
+      const stock = await client.query(
+        `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
+        [branch_id, product_variant_id]
+      );
+      if (stock.rowCount === 0 || stock.rows[0].quantity < quantity)
+        throw new Error("Not enough stock to return to supplier");
+    }
+
+    await client.query(
+      `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
+       VALUES ($1, $2, 'RETURN', $3, $4, $5)`,
+      [branch_id, product_variant_id, reference_id, quantity, direction]
+    );
+
+    const op = direction === "IN" ? "+" : "-";
+    await client.query(
+      `UPDATE inventory_stock SET quantity = quantity ${op} $1 WHERE branch_id = $2 AND product_variant_id = $3`,
+      [quantity, branch_id, product_variant_id]
+    );
+
+    await client.query("COMMIT");
+    reply.send({ success: true, message: "Return processed successfully" });
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    reply.status(500).send({ success: false, error: error.message });
+  } finally {
+    client.release();
+  }
+}
