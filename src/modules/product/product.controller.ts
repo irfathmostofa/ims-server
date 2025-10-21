@@ -673,7 +673,6 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
   }
 }
 
-
 export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
   const client = await pool.connect();
   try {
@@ -736,6 +735,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
     if (images && Array.isArray(images)) {
       for (const image of images) {
         if (image.id) {
+          // Update existing image
           if (image.is_primary) {
             await client.query(
               "UPDATE product_image SET is_primary = FALSE WHERE product_id = $1 AND id != $2",
