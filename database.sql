@@ -126,7 +126,7 @@ CREATE TABLE product_variant (
 CREATE TABLE product_image (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE, 
-    product_id INT REFERENCES product(id) ON DELETE CASCADE,
+    product_variant_id INT REFERENCES product_variant(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
     alt_text VARCHAR(255),          
     is_primary BOOLEAN DEFAULT FALSE,

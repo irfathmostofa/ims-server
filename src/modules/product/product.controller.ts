@@ -169,7 +169,6 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
     const {
       categories = [],
       variants = [],
-      images = [],
       ...productData
     } = req.body as Record<string, any>;
 
@@ -179,6 +178,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
     // Create product
     productData.code = await generatePrefixedId("product", "PROD");
     productData.created_by = userId;
+    if (!productData.status) productData.status = "A";
 
     const product = await productModel.create(productData);
 
@@ -193,40 +193,55 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
     }
 
     // Create variants + auto barcodes
-    // If no variants provided, create a default one
     const variantsToCreate =
       variants && variants.length > 0
         ? variants
         : [
             {
-              name: productData.name, // Use product name as default variant name
+              name: productData.name,
               additional_price: 0,
+              images: [],
             },
           ];
 
     for (const v of variantsToCreate) {
-      v.code = await generatePrefixedId("product_variant", "VAR");
-      v.product_id = product.id;
-      v.created_by = userId;
-      const variant = await productVariantModel.create(v);
+      // Prepare variant data
+      const variantData = {
+        code: await generatePrefixedId("product_variant", "VAR"),
+        product_id: product.id,
+        name: v.name || productData.name,
+        additional_price: v.additional_price ?? 0,
+        status: v.status || "A",
+        created_by: userId,
+      };
+
+      const variant = await productVariantModel.create(variantData);
 
       // Auto-generate barcode for this variant
-      const generatedBarcode = await generateRandomBarcode(v.code);
+      const generatedBarcode = await generateRandomBarcode(variantData.code);
       await productBarcodeModel.create({
         product_variant_id: variant.id,
         barcode: generatedBarcode,
         type: "EAN13",
         is_primary: true,
+        status: "A",
         created_by: userId,
       });
-    }
 
-    // Create images
-    for (const img of images) {
-      img.code = await generatePrefixedId("product_image", "IMG");
-      img.product_id = product.id;
-      img.created_by = userId;
-      await productImageModel.create(img);
+      // Create images for THIS SPECIFIC variant
+      const variantImages = v.images || [];
+      for (const img of variantImages) {
+        const imgData = {
+          code: await generatePrefixedId("product_image", "IMG"),
+          product_variant_id: variant.id,
+          url: img.url,
+          alt_text: img.alt_text || "Product Image",
+          is_primary: img.is_primary || false,
+          status: "A",
+          created_by: userId,
+        };
+        await productImageModel.create(imgData);
+      }
     }
 
     await client.query("COMMIT");
@@ -369,23 +384,25 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
           id AS primary_variant_id
         FROM product_variant
         WHERE status = 'A'
-        ORDER BY product_id DESC, id ASC
+        ORDER BY product_id, id ASC
       ) pv ON p.id = pv.product_id
 
       LEFT JOIN (
         SELECT 
-          product_id,
+          pv.product_id,
           json_agg(
             json_build_object(
-              'id', id,
-              'url', url,
-              'alt_text', alt_text,
-              'is_primary', is_primary
-            ) ORDER BY is_primary DESC, id
+              'id', pi.id,
+              'url', pi.url,
+              'alt_text', pi.alt_text,
+              'is_primary', pi.is_primary,
+              'variant_id', pi.product_variant_id
+            ) ORDER BY pi.is_primary DESC, pi.id
           ) AS images
-        FROM product_image
-        WHERE status = 'A'
-        GROUP BY product_id
+        FROM product_image pi
+        JOIN product_variant pv ON pi.product_variant_id = pv.id
+        WHERE pi.status = 'A' AND pv.status = 'A'
+        GROUP BY pv.product_id
       ) pi ON p.id = pi.product_id
 
       LEFT JOIN (
@@ -563,15 +580,16 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
             JSON_BUILD_OBJECT(
               'id', c.id,
               'name', c.name,
+              'code', c.code,
               'is_primary', pc.is_primary
-            )
+            ) ORDER BY pc.is_primary DESC
           )
           FROM product_categories pc
           JOIN category c ON pc.category_id = c.id
-          WHERE pc.product_id = p.id
+          WHERE pc.product_id = p.id AND c.status = 'A'
         ), '[]') AS categories,
 
-        -- Variants with barcodes and stock
+        -- Variants with barcodes, images, and stock
         COALESCE((
           SELECT JSON_AGG(
             JSON_BUILD_OBJECT(
@@ -581,41 +599,40 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
               'additional_price', v.additional_price,
               'status', v.status,
               'barcodes', (
-                SELECT JSON_AGG(
+                SELECT COALESCE(JSON_AGG(
                   JSON_BUILD_OBJECT(
                     'id', b.id,
                     'barcode', b.barcode,
                     'type', b.type,
                     'is_primary', b.is_primary
-                  )
-                )
+                  ) ORDER BY b.is_primary DESC
+                ), '[]')
                 FROM product_barcode b
-                WHERE b.product_variant_id = v.id
+                WHERE b.product_variant_id = v.id AND b.status = 'A'
+              ),
+              'images', (
+                SELECT COALESCE(JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                    'id', i.id,
+                    'code', i.code,
+                    'url', i.url,
+                    'alt_text', i.alt_text,
+                    'is_primary', i.is_primary
+                  ) ORDER BY i.is_primary DESC, i.id
+                ), '[]')
+                FROM product_image i
+                WHERE i.product_variant_id = v.id AND i.status = 'A'
               ),
               'stock', (
                 SELECT COALESCE(SUM(s.quantity), 0)
                 FROM inventory_stock s
                 WHERE s.product_variant_id = v.id
               )
-            )
+            ) ORDER BY v.id
           )
           FROM product_variant v
-          WHERE v.product_id = p.id
+          WHERE v.product_id = p.id AND v.status = 'A'
         ), '[]') AS variants,
-
-        -- Product Images
-        COALESCE((
-          SELECT JSON_AGG(
-            JSON_BUILD_OBJECT(
-              'id', i.id,
-              'url', i.url,
-              'alt_text', i.alt_text,
-              'is_primary', i.is_primary
-            )
-          )
-          FROM product_image i
-          WHERE i.product_id = p.id
-        ), '[]') AS images,
 
         -- Reviews
         COALESCE((
@@ -628,7 +645,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
               'comment', r.comment,
               'helpful', r.helpful_count,
               'created_at', r.created_at
-            )
+            ) ORDER BY r.created_at DESC
           )
           FROM product_review r
           JOIN customer c ON r.customer_id = c.id
@@ -643,12 +660,19 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
           )
           FROM product_review r
           WHERE r.product_id = p.id
-        ), JSON_BUILD_OBJECT('average_rating', 0, 'total_reviews', 0)) AS review_summary
+        ), JSON_BUILD_OBJECT('average_rating', 0, 'total_reviews', 0)) AS review_summary,
+
+        -- Total stock across all variants
+        COALESCE((
+          SELECT SUM(s.quantity)
+          FROM inventory_stock s
+          JOIN product_variant v ON s.product_variant_id = v.id
+          WHERE v.product_id = p.id AND v.status = 'A'
+        ), 0) AS total_stock
 
       FROM product p
       LEFT JOIN uom u ON u.id = p.uom_id
-      WHERE p.id = $1
-      GROUP BY p.id,u.id, u.name, u.symbol;
+      WHERE p.id = $1;
     `;
 
     const { rows } = await pool.query(query, [id]);
@@ -682,107 +706,251 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
 
     await client.query("BEGIN");
 
+    // Get user ID safely
+    const userId = (req.user as { id: number } | null)?.id;
+
     // ✅ Separate relational fields from main product fields
-    const { categories, variants, images, barcodes, ...productFields } = fields;
+    const { categories, variants, ...productFields } = fields;
 
     // 1️⃣ Update main product table
-    const updatedProduct = await productModel.update(
-      parseInt(id),
-      productFields,
-      client
-    );
-    if (!updatedProduct) {
-      await client.query("ROLLBACK");
-      return reply
-        .status(404)
-        .send({ success: false, message: "Product not found" });
+    if (productFields && Object.keys(productFields).length > 0) {
+      productFields.updated_by = userId;
+      const updatedProduct = await productModel.update(
+        parseInt(id),
+        productFields,
+        client
+      );
+      if (!updatedProduct) {
+        await client.query("ROLLBACK");
+        return reply
+          .status(404)
+          .send({ success: false, message: "Product not found" });
+      }
     }
 
     // 2️⃣ Update categories
     if (categories && Array.isArray(categories)) {
+      // Delete existing categories
       await client.query(
         "DELETE FROM product_categories WHERE product_id = $1",
         [id]
       );
+
+      // Insert new categories
       for (const cat of categories) {
         await productCategoryModel.create(
           {
-            product_id: id,
+            product_id: parseInt(id),
             category_id: cat.id,
             is_primary: cat.is_primary || false,
-            created_by: fields.updated_by || null,
+            created_by: userId,
           },
           client
         );
       }
     }
 
-    // 3️⃣ Update variants
+    // 3️⃣ Update variants (with their images and barcodes)
     if (variants && Array.isArray(variants)) {
       for (const variant of variants) {
+        const { images, barcodes, ...variantData } = variant;
+        let variantId: number;
+
         if (variant.id) {
-          await productVariantModel.update(variant.id, variant, client);
+          // Update existing variant
+          variantData.updated_by = userId;
+          const updatedVariant = await productVariantModel.update(
+            variant.id,
+            variantData,
+            client
+          );
+          variantId = variant.id;
         } else {
-          variant.code = await generatePrefixedId("product_variant", "VAR");
-          await productVariantModel.create(
-            { product_id: id, ...variant },
+          // Create new variant
+          variantData.code = await generatePrefixedId("product_variant", "VAR");
+          variantData.product_id = parseInt(id);
+          variantData.created_by = userId;
+          variantData.status = variantData.status || "A";
+
+          const newVariant = await productVariantModel.create(
+            variantData,
+            client
+          );
+          variantId = newVariant.id;
+
+          // Auto-generate barcode for new variant
+          const generatedBarcode = await generateRandomBarcode(
+            variantData.code
+          );
+          await productBarcodeModel.create(
+            {
+              product_variant_id: variantId,
+              barcode: generatedBarcode,
+              type: "EAN13",
+              is_primary: true,
+              status: "A",
+              created_by: userId,
+            },
             client
           );
         }
-      }
-    }
 
-    // 4️⃣ Update images
-    if (images && Array.isArray(images)) {
-      for (const image of images) {
-        if (image.id) {
-          // Update existing image
-          if (image.is_primary) {
-            await client.query(
-              "UPDATE product_image SET is_primary = FALSE WHERE product_id = $1 AND id != $2",
-              [id, image.id]
-            );
-          }
-          await productImageModel.update(image.id, image, client);
-        } else {
-          image.code = await generatePrefixedId("product_image", "IMG");
-          await productImageModel.create({ product_id: id, ...image }, client);
-        }
-      }
-    }
+        // 3a️⃣ Handle images for this variant
+        if (images && Array.isArray(images)) {
+          // Get existing image IDs for this variant
+          const existingImagesResult = await client.query(
+            "SELECT id FROM product_image WHERE product_variant_id = $1",
+            [variantId]
+          );
+          const existingImageIds = existingImagesResult.rows.map((r) => r.id);
+          const updatedImageIds: number[] = [];
 
-    // 5️⃣ Update barcodes
-    if (barcodes && Array.isArray(barcodes)) {
-      for (const group of barcodes) {
-        for (const barcode of group.barcodes) {
-          if (barcode.id) {
-            if (barcode.is_primary) {
-              await client.query(
-                "UPDATE product_barcode SET is_primary = FALSE WHERE product_variant_id = $1 AND id != $2",
-                [group.variant_id, barcode.id]
+          for (const image of images) {
+            if (image.id) {
+              // Update existing image
+              updatedImageIds.push(image.id);
+
+              // If setting as primary, unset others
+              if (image.is_primary) {
+                await client.query(
+                  "UPDATE product_image SET is_primary = FALSE WHERE product_variant_id = $1 AND id != $2",
+                  [variantId, image.id]
+                );
+              }
+
+              const imageUpdate = {
+                url: image.url,
+                alt_text: image.alt_text,
+                is_primary: image.is_primary,
+                status: image.status || "A",
+                updated_by: userId,
+              };
+              await productImageModel.update(image.id, imageUpdate, client);
+            } else {
+              // Create new image
+              const newImage = {
+                code: await generatePrefixedId("product_image", "IMG"),
+                product_variant_id: variantId,
+                url: image.url,
+                alt_text: image.alt_text || "Product Image",
+                is_primary: image.is_primary || false,
+                status: image.status || "A",
+                created_by: userId,
+              };
+              const createdImage = await productImageModel.create(
+                newImage,
+                client
               );
+              updatedImageIds.push(createdImage.id);
             }
-            await productBarcodeModel.update(barcode.id, barcode, client);
-          } else {
-            await productBarcodeModel.create(
-              { product_variant_id: group.variant_id, ...barcode },
-              client
+          }
+
+          // Delete images that were removed (not in the update list)
+          const imagesToDelete = existingImageIds.filter(
+            (id) => !updatedImageIds.includes(id)
+          );
+          if (imagesToDelete.length > 0) {
+            await client.query("DELETE FROM product_image WHERE id = ANY($1)", [
+              imagesToDelete,
+            ]);
+          }
+        }
+
+        // 3b️⃣ Handle barcodes for this variant
+        if (barcodes && Array.isArray(barcodes)) {
+          // Get existing barcode IDs for this variant
+          const existingBarcodesResult = await client.query(
+            "SELECT id FROM product_barcode WHERE product_variant_id = $1",
+            [variantId]
+          );
+          const existingBarcodeIds = existingBarcodesResult.rows.map(
+            (r) => r.id
+          );
+          const updatedBarcodeIds: number[] = [];
+
+          for (const barcode of barcodes) {
+            if (barcode.id) {
+              // Update existing barcode
+              updatedBarcodeIds.push(barcode.id);
+
+              // If setting as primary, unset others
+              if (barcode.is_primary) {
+                await client.query(
+                  "UPDATE product_barcode SET is_primary = FALSE WHERE product_variant_id = $1 AND id != $2",
+                  [variantId, barcode.id]
+                );
+              }
+
+              const barcodeUpdate = {
+                barcode: barcode.barcode,
+                type: barcode.type,
+                is_primary: barcode.is_primary,
+                status: barcode.status || "A",
+                updated_by: userId,
+              };
+              await productBarcodeModel.update(
+                barcode.id,
+                barcodeUpdate,
+                client
+              );
+            } else {
+              // Create new barcode
+              const newBarcode = {
+                product_variant_id: variantId,
+                barcode: barcode.barcode,
+                type: barcode.type || "EAN13",
+                is_primary: barcode.is_primary || false,
+                status: barcode.status || "A",
+                created_by: userId,
+              };
+              const createdBarcode = await productBarcodeModel.create(
+                newBarcode,
+                client
+              );
+              updatedBarcodeIds.push(createdBarcode.id);
+            }
+          }
+
+          // Delete barcodes that were removed (not in the update list)
+          const barcodesToDelete = existingBarcodeIds.filter(
+            (id) => !updatedBarcodeIds.includes(id)
+          );
+          if (barcodesToDelete.length > 0) {
+            await client.query(
+              "DELETE FROM product_barcode WHERE id = ANY($1)",
+              [barcodesToDelete]
             );
           }
         }
+      }
+
+      // Delete variants that were removed (optional - be careful with this)
+      // You might want to soft delete instead
+      const variantIds = variants.filter((v) => v.id).map((v) => v.id);
+
+      if (variantIds.length > 0) {
+        await client.query(
+          `DELETE FROM product_variant 
+           WHERE product_id = $1 
+           AND id != ALL($2)`,
+          [id, variantIds]
+        );
       }
     }
 
     await client.query("COMMIT");
 
+    // Fetch updated product with all relations
+    const result = await client.query("SELECT * FROM product WHERE id = $1", [
+      id,
+    ]);
+
     return reply.send(
-      successResponse(
-        updatedProduct,
-        "Product updated successfully (with categories, variants, images, and barcodes)"
-      )
+      successResponse(result.rows[0], "Product updated successfully")
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
+    console.error("Update product error:", err);
     return reply.status(400).send({ success: false, message: err.message });
   } finally {
     client.release();

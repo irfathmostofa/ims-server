@@ -34,7 +34,7 @@ export const productVariantModel = new CrudModel(
 
 export const productImageModel = new CrudModel(
   "product_image",
-  ["product_id", "code", "url"],
+  ["product_variant_id", "code", "url"],
   ["code"],
   ["alt_text", "is_primary", "status", "created_by"]
 );
