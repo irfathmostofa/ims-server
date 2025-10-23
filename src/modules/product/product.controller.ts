@@ -553,6 +553,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
         p.selling_price,
         p.regular_price,
         p.status,
+        u.id AS uom_id,
         u.name AS uom_name,
         u.symbol AS uom_symbol,
 
@@ -647,7 +648,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
       FROM product p
       LEFT JOIN uom u ON u.id = p.uom_id
       WHERE p.id = $1
-      GROUP BY p.id, u.name, u.symbol;
+      GROUP BY p.id,u.id, u.name, u.symbol;
     `;
 
     const { rows } = await pool.query(query, [id]);
