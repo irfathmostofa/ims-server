@@ -38,26 +38,50 @@ import {
 export default async function productRoutes(app: FastifyInstance) {
   // app.addHook("onRequest", app.authenticate);
   // product category
-  app.post("/create-product-cat", createProductCat);
+  app.post(
+    "/create-product-cat",
+    { preHandler: [app.authenticate] },
+    createProductCat
+  );
   app.get("/get-product-cat", getProductCat);
-  app.post("/update-product-cat/:id", updateProductCat);
-  app.post("/delete-product-cat", deleteProductCat);
+  app.post(
+    "/update-product-cat/:id",
+    { preHandler: [app.authenticate] },
+    updateProductCat
+  );
+  app.post(
+    "/delete-product-cat",
+    { preHandler: [app.authenticate] },
+    deleteProductCat
+  );
   // UOM
-  app.post("/create-uom", createUOM);
+  app.post("/create-uom", { preHandler: [app.authenticate] }, createUOM);
   app.get("/get-uom", getUOM);
-  app.post("/update-uom/:id", updateUOM);
-  app.post("/delete-uom", deleteUOM);
+  app.post("/update-uom/:id", { preHandler: [app.authenticate] }, updateUOM);
+  app.post("/delete-uom", { preHandler: [app.authenticate] }, deleteUOM);
 
   // Product
   app.post("/products", { preHandler: [app.authenticate] }, createProduct);
-  app.post("/bulk-products", bulkCreateProducts);
+  app.post(
+    "/bulk-products",
+    { preHandler: [app.authenticate] },
+    bulkCreateProducts
+  );
   app.post("/get-all-products", getAllProducts);
   app.post("/get-pos-products", getProductsPOS);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);
   app.get("/products/:id", getProductById);
-  app.post("/update-products/:id", updateProduct);
-  app.post("/delete-products/:id", deleteProduct);
+  app.post(
+    "/update-products/:id",
+    { preHandler: [app.authenticate] },
+    updateProduct
+  );
+  app.post(
+    "/delete-products/:id",
+    { preHandler: [app.authenticate] },
+    deleteProduct
+  );
 
   // ===== PRODUCT VARIANT ROUTES =====
   app.post("/products/:product_id/variants", createProductVariant);
