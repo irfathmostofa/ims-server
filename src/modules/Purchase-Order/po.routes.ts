@@ -19,8 +19,8 @@ import {
 
 export default async function poRoutes(app: FastifyInstance) {
   // Core CRUD
-  app.post("/purchase-orders ", createPurchaseOrder);
-  app.get("/purchase-orders ", getAllPurchaseOrders);
+  app.post("/purchase-orders", createPurchaseOrder);
+  app.get("/purchase-orders", getAllPurchaseOrders);
   app.get("/purchase-orders/:id", getPurchaseOrderById);
   app.post("/update-purchase-orders/:id", updatePurchaseOrder);
   app.post("/delete-purchase-orders", deletePurchaseOrder);
@@ -35,6 +35,6 @@ export default async function poRoutes(app: FastifyInstance) {
   app.get("/grn/:id", getGRNById);
   app.post("/update-grn/:id", updateGRN);
   app.post("/update-status-grn/:id/status", updateGRNStatus);
-  app.post("/delete-grn/:id", deleteGRN);
+  app.post("/delete-grn", deleteGRN);
   app.get("/grns", listGRNs);
 }

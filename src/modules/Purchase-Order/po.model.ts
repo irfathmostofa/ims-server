@@ -3,7 +3,7 @@ import { CrudModel } from "../../core/models/crud.model";
 // ========== Initialize Models ==========
 export const purchaseOrderModel = new CrudModel(
   "purchase_order",
-  ["branch_id", "supplier_id", "order_date"], // required fields
+  ["code", "branch_id", "supplier_id", "order_date"], // required fields
   ["code"], // unique fields
   ["expected_date", "delivery_date", "notes", "status"] // optional fields
 );
@@ -16,8 +16,8 @@ export const purchaseOrderItemsModel = new CrudModel(
 );
 export const grnModel = new CrudModel(
   "goods_received_note",
-  ["purchase_order_id", "received_by"], // required
-  ["grn_code"], // unique
+  ["code", "purchase_order_id", "received_by"], // required
+  ["code"], // unique
   ["status", "notes", "received_date"] // optional
 );
 

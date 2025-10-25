@@ -150,7 +150,7 @@ CREATE TABLE product_barcode (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE uom_conversion (
+CREATE TABLE uom_conversion (   
     id SERIAL PRIMARY KEY,
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
     from_uom_id INT REFERENCES uom(id),
@@ -192,7 +192,7 @@ CREATE TABLE purchase_order_items (
 CREATE TABLE goods_received_note (
     id SERIAL PRIMARY KEY,
     purchase_order_id INT REFERENCES purchase_order(id) ON DELETE CASCADE,
-    grn_code VARCHAR(20) UNIQUE,
+    code VARCHAR(20) UNIQUE,
     received_date DATE DEFAULT CURRENT_DATE,
     received_by INT REFERENCES users(id),
     status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),

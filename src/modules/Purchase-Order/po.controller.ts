@@ -44,7 +44,7 @@ export async function createPurchaseOrder(
     orderFields.discount_amount = totalDiscount;
     orderFields.status = orderFields.status || "PENDING";
 
-    // ✅ Use CRUD model to create PO
+    //  Use CRUD model to create PO
     const newOrder = await purchaseOrderModel.create(orderFields);
 
     const orderItems = [];
@@ -140,9 +140,21 @@ export async function getAllPurchaseOrders(
         p.name as supplier_name,
         p.phone as supplier_phone,
         u.username as created_by_name,
-        COUNT(poi.id) as total_items,
-        SUM(poi.quantity) as total_quantity,
-        SUM(poi.received_quantity) as total_received
+        COALESCE(SUM(poi.quantity), 0) as total_quantity,
+        COALESCE(SUM(poi.received_quantity), 0) as total_received,
+        COALESCE(COUNT(poi.id), 0) as total_items,
+        COALESCE(json_agg(
+          json_build_object(
+            'id', poi.id,
+            'product_variant_id', poi.product_variant_id,
+            'quantity', poi.quantity,
+            'received_quantity', poi.received_quantity,
+            'unit_price', poi.unit_price,
+            'discount', poi.discount,
+            'tax_rate', poi.tax_rate,
+            'notes', poi.notes
+          )
+        ) FILTER (WHERE poi.id IS NOT NULL), '[]') as items
       FROM purchase_order po
       LEFT JOIN branch b ON po.branch_id = b.id
       LEFT JOIN party p ON po.supplier_id = p.id
@@ -288,7 +300,7 @@ export async function deletePurchaseOrder(
   reply: FastifyReply
 ) {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.body as { id: number };
 
     // Check if order can be deleted
     const {
@@ -310,7 +322,7 @@ export async function deletePurchaseOrder(
       });
     }
 
-    const deletedOrder = await purchaseOrderModel.delete(parseInt(id));
+    const deletedOrder = await purchaseOrderModel.delete(id);
 
     reply.send(
       successResponse(deletedOrder, "Purchase order deleted successfully")
@@ -655,82 +667,125 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
   try {
     await client.query("BEGIN");
 
-    const { purchase_order_id, received_by, items, notes } = req.body as any;
+    const { purchase_order_id, received_by, grn_date, items, notes } =
+      req.body as any;
 
-    // Validate purchase order existence
+    if (!grn_date) throw new Error("GRN date is required");
+
+    // 1️⃣ Validate Purchase Order
     const { rows: poRows } = await client.query(
       "SELECT * FROM purchase_order WHERE id = $1",
       [purchase_order_id]
     );
     if (poRows.length === 0) throw new Error("Purchase order not found");
+    const po = poRows[0];
 
-    // Generate GRN code
+    // 2️⃣ Generate GRN code
     const grn_code = await generatePrefixedId("goods_received_note", "GRN");
 
-    // Create GRN
-    const grn = await grnModel.create({
-      purchase_order_id,
-      received_by,
-      grn_code,
-      notes,
-    });
+    // 3️⃣ Insert GRN
+    const { rows: grnRows } = await client.query(
+      `INSERT INTO goods_received_note
+        (purchase_order_id, code, received_date, received_by, notes)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [purchase_order_id, grn_code, grn_date, received_by, notes || null]
+    );
+    const grn = grnRows[0];
 
-    // Add GRN items
+    // 4️⃣ Process GRN items
     const grnItems = [];
+
     for (const item of items) {
-      // Get ordered quantity from PO
-      const {
-        rows: [poItem],
-      } = await client.query(
-        "SELECT * FROM purchase_order_items WHERE id = $1 AND order_id = $2",
+      // Fetch PO item
+      const { rows: poItemRows } = await client.query(
+        `SELECT * FROM purchase_order_items 
+         WHERE id = $1 AND order_id = $2`,
         [item.po_item_id, purchase_order_id]
       );
+      const poItem = poItemRows[0];
       if (!poItem) throw new Error(`PO item ${item.po_item_id} not found`);
 
-      const newItem = await grnItemsModel.create({
-        grn_id: grn.id,
-        product_variant_id: poItem.product_variant_id,
-        ordered_quantity: poItem.quantity,
-        received_quantity: item.received_quantity,
-        notes: item.notes || null,
-      });
+      const receivedQty = Math.min(item.received_quantity, poItem.quantity - poItem.received_quantity);
+      if (receivedQty <= 0) continue; // skip if fully received
 
-      // Update received quantity in PO item
-      await client.query(
-        "UPDATE purchase_order_items SET received_quantity = received_quantity + $1 WHERE id = $2",
-        [item.received_quantity, poItem.id]
+      // Check if GRN item already exists (prevents duplicate)
+      const { rows: existingRows } = await client.query(
+        `SELECT id, received_quantity 
+         FROM grn_items 
+         WHERE grn_id = $1 AND product_variant_id = $2`,
+        [grn.id, poItem.product_variant_id]
       );
 
-      grnItems.push(newItem);
+      let grnItem;
+      if (existingRows.length) {
+        // Update existing GRN item
+        const { rows: updatedRows } = await client.query(
+          `UPDATE grn_items
+           SET received_quantity = received_quantity + $1,
+               notes = COALESCE($2, notes)
+           WHERE id = $3
+           RETURNING *`,
+          [receivedQty, item.notes || null, existingRows[0].id]
+        );
+        grnItem = updatedRows[0];
+      } else {
+        // Insert new GRN item
+        const { rows: newRows } = await client.query(
+          `INSERT INTO grn_items
+            (grn_id, product_variant_id, ordered_quantity, received_quantity, notes)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING *`,
+          [grn.id, poItem.product_variant_id, poItem.quantity, receivedQty, item.notes || null]
+        );
+        grnItem = newRows[0];
+      }
 
-      // Update inventory stock
+      grnItems.push(grnItem);
+
+      // 4a️⃣ Update PO item received quantity
       await client.query(
-        `
-        INSERT INTO inventory_stock (branch_id, product_variant_id, quantity)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (branch_id, product_variant_id, batch_id, location_id)
-        DO UPDATE SET 
-          quantity = inventory_stock.quantity + $3,
-          last_updated = CURRENT_TIMESTAMP
-      `,
-        [poRows[0].branch_id, poItem.product_variant_id, item.received_quantity]
+        `UPDATE purchase_order_items
+         SET received_quantity = received_quantity + $1
+         WHERE id = $2`,
+        [receivedQty, poItem.id]
+      );
+
+      // 4b️⃣ Update inventory stock
+      await client.query(
+        `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (branch_id, product_variant_id)
+         DO UPDATE SET quantity = inventory_stock.quantity + $3`,
+        [po.branch_id, poItem.product_variant_id, receivedQty]
+      );
+
+      // 4c️⃣ Insert stock transaction
+      await client.query(
+        `INSERT INTO stock_transaction
+          (branch_id, product_variant_id, type, reference_id, quantity, direction)
+         VALUES ($1, $2, 'PURCHASE', $3, $4, 'IN')`,
+        [po.branch_id, poItem.product_variant_id, grn.id, receivedQty]
       );
     }
 
-    // Update PO status
-    const { rows: totals } = await client.query(
-      "SELECT SUM(quantity) as total_ordered, SUM(received_quantity) as total_received FROM purchase_order_items WHERE order_id = $1",
+    // 5️⃣ Update Purchase Order status
+    const { rows: totalsRows } = await client.query(
+      `SELECT SUM(quantity) AS total_ordered, SUM(received_quantity) AS total_received
+       FROM purchase_order_items WHERE order_id = $1`,
       [purchase_order_id]
     );
-
+    const totals = totalsRows[0];
     const newStatus =
-      parseFloat(totals[0].total_received || 0) >=
-      parseFloat(totals[0].total_ordered || 0)
+      parseFloat(totals.total_received || 0) >=
+      parseFloat(totals.total_ordered || 0)
         ? "RECEIVED"
         : "PARTIAL";
 
     await client.query(
-      "UPDATE purchase_order SET status = $1, delivery_date = CURRENT_DATE WHERE id = $2",
+      `UPDATE purchase_order
+       SET status = $1, delivery_date = CURRENT_DATE
+       WHERE id = $2`,
       [newStatus, purchase_order_id]
     );
 
@@ -749,6 +804,8 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
     client.release();
   }
 }
+
+
 export async function getGRNById(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = req.params as { id: string };
@@ -847,7 +904,7 @@ export async function updateGRNStatus(
 }
 export async function deleteGRN(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.body as { id: number };
 
     const grn = await grnModel.findById(id);
     if (!grn) throw new Error("GRN not found");
@@ -855,7 +912,7 @@ export async function deleteGRN(req: FastifyRequest, reply: FastifyReply) {
       throw new Error("Cannot delete approved GRN");
     }
 
-    await grnModel.delete(parseInt(id));
+    await grnModel.delete(id);
     reply.send(successResponse(null, "GRN deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });

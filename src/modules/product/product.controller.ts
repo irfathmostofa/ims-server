@@ -510,19 +510,37 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
         p.id AS product_id,
         pv.id AS variant_id,
         COALESCE(pv.code, p.code) AS code,
-        p.name,
+        p.name AS product_name,
+        pv.name AS variant_name,
+        CASE 
+          WHEN pv.name IS NOT NULL AND pv.name != '' 
+          THEN p.name || ' (' || pv.name || ')'
+          ELSE p.name
+        END AS display_name,
         p.description,
-        (p.selling_price + COALESCE(pv.additional_price,0)) AS selling_price,
-        u.symbol,
-        c.name AS category,
-        COALESCE(st.quantity, 0) AS stock_qty
+        (p.selling_price + COALESCE(pv.additional_price, 0)) AS selling_price,
+        p.cost_price,
+        COALESCE(pv.additional_price, 0) AS additional_price,
+        u.symbol AS uom_symbol,
+        u.name AS uom_name,
+        (
+          SELECT STRING_AGG(c.name, ', ')
+          FROM product_categories pc
+          LEFT JOIN category c ON c.id = pc.category_id
+          WHERE pc.product_id = p.id
+        ) AS category_name,
+        (
+          SELECT COALESCE(SUM(st.quantity), 0)
+          FROM inventory_stock st
+          WHERE st.product_variant_id = pv.id
+        ) AS stock_qty,
+        p.status,
+        pv.status AS variant_status
       FROM product p
       LEFT JOIN uom u ON u.id = p.uom_id
       LEFT JOIN product_variant pv ON pv.product_id = p.id
-      LEFT JOIN inventory_stock st ON st.product_variant_id = pv.id
-      LEFT JOIN product_categories pc ON pc.product_id = p.id
-      LEFT JOIN category c ON c.id = pc.category_id
-      WHERE 1=1
+      WHERE p.status = 'A' 
+        AND (pv.status = 'A' OR pv.status IS NULL)
     `;
 
     const params: any[] = [];
@@ -530,29 +548,42 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
 
     // Category filter
     if (category_id) {
-      query += ` AND c.id = $${paramIndex++}`;
+      query += ` AND EXISTS (
+        SELECT 1 FROM product_categories pc
+        WHERE pc.product_id = p.id AND pc.category_id = $${paramIndex++}
+      )`;
       params.push(category_id);
     }
 
-    // Search filter
-    if (search) {
+    // Search filter - search in product name, variant name, and codes
+    if (search && search.trim() !== "") {
       query += ` AND (
         p.name ILIKE $${paramIndex} OR 
         p.code ILIKE $${paramIndex} OR
-        pv.code ILIKE $${paramIndex}
+        pv.name ILIKE $${paramIndex} OR
+        pv.code ILIKE $${paramIndex} OR
+        (p.name || ' (' || COALESCE(pv.name, '') || ')') ILIKE $${paramIndex}
       )`;
-      params.push(`%${search}%`);
+      params.push(`%${search.trim()}%`);
       paramIndex++;
     }
 
-    query += ` ORDER BY p.id, pv.id`;
+    query += ` ORDER BY p.name, pv.name NULLS FIRST`;
 
     const { rows } = await pool.query(query, params);
 
-    return reply.send({ success: true, data: rows });
+    return reply.send({
+      success: true,
+      data: rows,
+      count: rows.length,
+    });
   } catch (error) {
-    console.error("getProductsFlat error:", error);
-    return reply.status(500).send({ success: false, message: "Server error" });
+    console.error("getProductsPOS error:", error);
+    return reply.status(500).send({
+      success: false,
+      message: "Server error",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
   }
 }
 
