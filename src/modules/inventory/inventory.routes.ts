@@ -11,9 +11,14 @@ import {
   transferStock,
   adjustStock,
   returnStock,
+  createRequisition,
+  getRequisitionById,
+  approveAndTransferRequisition,
+  getRequisition,
 } from "./inventory.controller";
 
 export async function inventoryRoutes(app: FastifyInstance) {
+  app.addHook("onRequest", app.authenticate);
   // Inventory Stock
   app.post("/stock", addStock);
   app.get("/stock", listStock);
@@ -30,4 +35,11 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.post("/transfer-stock", transferStock);
   app.post("/adjust-stock", adjustStock);
   app.post("/return-stock", returnStock);
+
+  // requisition
+
+  app.post("/create-requisition", createRequisition);
+  app.get("/get-requisition", getRequisitionById);
+  app.get("/get-all-requisition", getRequisition);
+  app.post("/approve-requisition", approveAndTransferRequisition);
 }

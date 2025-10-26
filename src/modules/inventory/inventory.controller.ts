@@ -6,6 +6,8 @@ import {
   inventoryStockModel,
   productTransferItemsModel,
   productTransferModel,
+  requisitionItemsModel,
+  requisitionModel,
   stockTransactionModel,
 } from "./inventory.model";
 
@@ -614,6 +616,566 @@ export async function returnStock(req: FastifyRequest, reply: FastifyReply) {
   } catch (error: any) {
     await client.query("ROLLBACK");
     reply.status(500).send({ success: false, error: error.message });
+  } finally {
+    client.release();
+  }
+}
+
+export async function createRequisition(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { from_branch_id, to_branch_id, requisition_date, remarks, items } =
+      req.body as any;
+
+    // Validate items
+    if (!items || items.length === 0) {
+      throw new Error("Requisition must have at least one item");
+    }
+
+    // Validate branches are different
+    if (from_branch_id === to_branch_id) {
+      throw new Error("From branch and to branch cannot be the same");
+    }
+
+    // Generate requisition code
+    const code = await generatePrefixedId("requisition", "REQ");
+
+    // Create requisition
+    const requisition = await requisitionModel.create(
+      {
+        code,
+        from_branch_id,
+        to_branch_id,
+        requisition_date,
+        remarks,
+        created_by: (req.user as any)?.id,
+      },
+      client
+    );
+
+    const requisitionId = requisition.id;
+
+    // Insert requisition items
+    for (const item of items) {
+      await requisitionItemsModel.create(
+        {
+          requisition_id: requisitionId,
+          product_variant_id: item.product_variant_id,
+          requested_qty: item.requested_qty,
+        },
+        client
+      );
+    }
+    await client.query("COMMIT");
+    reply.send(
+      successResponse(requisition, "Requisition created successfully")
+    );
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    console.error("Create requisition error:", err);
+    reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+}
+export async function getRequisitionById(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const requisitionId = parseInt(req.params.id);
+
+    // Get requisition with branch details
+    const requisitionResult = await pool.query(
+      `SELECT 
+        r.*,
+        fb.name as from_branch_name,
+        fb.code as from_branch_code,
+        tb.name as to_branch_name,
+        tb.code as to_branch_code,
+        u.username as created_by_name
+      FROM requisition r
+      LEFT JOIN branch fb ON r.from_branch_id = fb.id
+      LEFT JOIN branch tb ON r.to_branch_id = tb.id
+      LEFT JOIN users u ON r.created_by = u.id
+      WHERE r.id = $1`,
+      [requisitionId]
+    );
+
+    if (requisitionResult.rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "Requisition not found",
+      });
+    }
+
+    const requisition = requisitionResult.rows[0];
+
+    // Get requisition items with product details
+    const itemsResult = await pool.query(
+      `SELECT 
+        ri.*,
+        pv.name as variant_name,
+        pv.code as variant_code,
+        pv.additional_price,
+        p.id as product_id,
+        p.name as product_name,
+        p.code as product_code,
+        p.selling_price
+      FROM requisition_items ri
+      JOIN product_variant pv ON ri.product_variant_id = pv.id
+      JOIN product p ON pv.product_id = p.id
+      WHERE ri.requisition_id = $1
+      ORDER BY ri.id`,
+      [requisitionId]
+    );
+
+    reply.send({
+      success: true,
+      data: {
+        ...requisition,
+        items: itemsResult.rows,
+      },
+      message: "",
+    });
+  } catch (err: any) {
+    console.error("Get requisition error:", err);
+    reply.status(400).send({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+export async function getRequisition(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    // Get requisition with branch details
+    const requisitionResult = await pool.query(
+      `SELECT 
+        r.*,
+        fb.name as from_branch_name,
+        fb.code as from_branch_code,
+        tb.name as to_branch_name,
+        tb.code as to_branch_code,
+        u.username as created_by_name,
+        COALESCE(
+          (
+            SELECT JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'id', ri.id,
+                'requisition_id', ri.requisition_id,
+                'product_variant_id', ri.product_variant_id,
+                'requested_qty', ri.requested_qty,
+                'approved_qty', ri.approved_qty,
+                'variant_name', pv.name,
+                'variant_code', pv.code,
+                'product_id', p.id,
+                'product_name', p.name,
+                'product_code', p.code,
+                'selling_price', p.selling_price
+              ) ORDER BY ri.id
+            )
+            FROM requisition_items ri
+            JOIN product_variant pv ON ri.product_variant_id = pv.id
+            JOIN product p ON pv.product_id = p.id
+            WHERE ri.requisition_id = r.id
+          ), 
+          '[]'::json
+        ) AS items
+      FROM requisition r
+      LEFT JOIN branch fb ON r.from_branch_id = fb.id
+      LEFT JOIN branch tb ON r.to_branch_id = tb.id
+      LEFT JOIN users u ON r.created_by = u.id
+     `
+    );
+    if (requisitionResult.rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "Requisition not found",
+      });
+    }
+    reply.send(
+      successResponse(
+        requisitionResult.rows,
+        "Requisition created successfully"
+      )
+    );
+  } catch (err: any) {
+    console.error("Get requisition error:", err);
+    reply.status(400).send({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
+/**
+ * Update Requisition
+ */
+export async function updateRequisition(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const {
+      requisitionId,
+      from_branch_id,
+      to_branch_id,
+      transfer_date,
+      type,
+      reference_id,
+      status,
+      items,
+    } = req.body as any;
+
+    // Check if requisition exists
+    const existingRequisition = await requisitionModel.findById(
+      requisitionId,
+      client
+    );
+    if (!existingRequisition) {
+      return reply.status(404).send({
+        success: false,
+        message: "Requisition not found",
+      });
+    }
+
+    // Validate branches if being updated
+    if (from_branch_id && to_branch_id && from_branch_id === to_branch_id) {
+      throw new Error("From branch and to branch cannot be the same");
+    }
+
+    // Update requisition basic info
+    const updateData: any = {};
+    if (from_branch_id) updateData.from_branch_id = from_branch_id;
+    if (to_branch_id) updateData.to_branch_id = to_branch_id;
+    if (transfer_date) updateData.transfer_date = transfer_date;
+    if (type) updateData.type = type;
+    if (reference_id !== undefined) updateData.reference_id = reference_id;
+    if (status) updateData.status = status;
+    updateData.updated_by = (req.user as any)?.id;
+    updateData.updated_at = new Date();
+
+    if (Object.keys(updateData).length > 2) {
+      // More than just updated_by and updated_at
+      await requisitionModel.update(requisitionId, updateData, client);
+    }
+
+    // Update items if provided
+    if (items && items.length > 0) {
+      // Delete old items
+      await client.query(
+        "DELETE FROM requisition_items WHERE requisition_id = $1",
+        [requisitionId]
+      );
+
+      // Insert new items
+      for (const item of items) {
+        await requisitionItemsModel.create(
+          {
+            requisition_id: requisitionId,
+            product_variant_id: item.product_variant_id,
+            requested_qty: item.requested_qty,
+          },
+          client
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+
+    reply.send({
+      success: true,
+      message: "Requisition updated successfully",
+    });
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    console.error("Update requisition error:", err);
+    reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Delete Requisition
+ */
+export async function deleteRequisition(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const requisitionId = parseInt(req.params.id);
+
+    // Check if requisition exists
+    const requisition = await requisitionModel.findById(requisitionId, client);
+    if (!requisition) {
+      return reply.status(404).send({
+        success: false,
+        message: "Requisition not found",
+      });
+    }
+    // Optional: Check if requisition can be deleted based on status
+    if (
+      requisition.status === "APPROVED" ||
+      requisition.status === "COMPLETED"
+    ) {
+      throw new Error(
+        `Cannot delete requisition with status: ${requisition.status}`
+      );
+    }
+    await requisitionModel.delete(requisitionId, client);
+
+    await client.query("COMMIT");
+
+    reply.send({
+      success: true,
+      message: "Requisition deleted successfully",
+    });
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    console.error("Delete requisition error:", err);
+    reply.status(400).send({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+}
+export async function approveAndTransferRequisition(
+  req: FastifyRequest<{
+    Body: {
+      id: string;
+      approved_items: Array<{
+        requisition_item_id: number;
+        product_variant_id: number;
+        requested_qty: number;
+        approved_qty: number;
+      }>;
+      remarks?: string;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const requisitionId = parseInt(req.body.id);
+    const { approved_items, remarks } = req.body;
+    const userId = (req.user as any)?.id;
+
+    // 1. Get requisition details
+    const requisitionResult = await client.query(
+      "SELECT * FROM requisition WHERE id = $1",
+      [requisitionId]
+    );
+
+    if (requisitionResult.rows.length === 0) {
+      throw new Error("Requisition not found");
+    }
+
+    const requisition = requisitionResult.rows[0];
+
+    // Validate requisition status
+    if (requisition.status === "APPROVED") {
+      throw new Error("Requisition already approved");
+    }
+
+    if (requisition.status === "COMPLETED") {
+      throw new Error("Requisition already completed");
+    }
+
+    if (requisition.status === "CANCELLED") {
+      throw new Error("Cannot approve cancelled requisition");
+    }
+
+    // Validate items
+    if (!approved_items || approved_items.length === 0) {
+      throw new Error("No items to approve");
+    }
+
+    const fromBranchId = requisition.from_branch_id;
+    const toBranchId = requisition.to_branch_id;
+
+    // 2. Create Product Transfer
+    const transferCode = await generatePrefixedId("product_transfer", "TRF");
+    const transfer = await productTransferModel.create(
+      {
+        code: transferCode,
+        from_branch_id: fromBranchId,
+        to_branch_id: toBranchId,
+        reference_no: requisition.code,
+        status: "COMPLETED", // Auto-complete since we're processing immediately
+        created_by: userId,
+      },
+      client
+    );
+
+    const transferId = transfer.id;
+
+    // 3. Process each approved item
+    for (const item of approved_items) {
+      const { product_variant_id, approved_qty, requisition_item_id } = item;
+
+      if (approved_qty <= 0) {
+        continue; // Skip items with 0 or negative approved quantity
+      }
+
+      // 3.1 Update requisition item with approved quantity
+      await client.query(
+        `UPDATE requisition_items 
+         SET approved_qty = $1 
+         WHERE id = $2 AND requisition_id = $3`,
+        [approved_qty, requisition_item_id, requisitionId]
+      );
+
+      // 3.2 Check stock availability in source branch
+      const stockCheck = await client.query(
+        `SELECT quantity FROM inventory_stock 
+         WHERE branch_id = $1 AND product_variant_id = $2`,
+        [fromBranchId, product_variant_id]
+      );
+
+      if (
+        stockCheck.rows.length === 0 ||
+        stockCheck.rows[0].quantity < approved_qty
+      ) {
+        throw new Error(
+          `Insufficient stock for product variant ID ${product_variant_id} in source branch. ` +
+            `Available: ${
+              stockCheck.rows[0]?.quantity || 0
+            }, Required: ${approved_qty}`
+        );
+      }
+
+      // 3.3 Create transfer item
+      await productTransferItemsModel.create(
+        {
+          transfer_id: transferId,
+          product_variant_id,
+          quantity: approved_qty,
+        },
+        client
+      );
+
+      // 3.4 Deduct stock from source branch
+      await client.query(
+        `UPDATE inventory_stock 
+         SET quantity = quantity - $1 
+         WHERE branch_id = $2 AND product_variant_id = $3`,
+        [approved_qty, fromBranchId, product_variant_id]
+      );
+
+      // 3.5 Create stock transaction (OUT from source)
+      await stockTransactionModel.create(
+        {
+          branch_id: fromBranchId,
+          product_variant_id,
+          type: "TRANSFER",
+          reference_id: transferId,
+          quantity: approved_qty,
+          direction: "OUT",
+          created_by: userId,
+        },
+        client
+      );
+
+      // 3.6 Add stock to destination branch
+      const destStockResult = await client.query(
+        `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (branch_id, product_variant_id)
+         DO UPDATE SET quantity = inventory_stock.quantity + $3
+         RETURNING *`,
+        [toBranchId, product_variant_id, approved_qty]
+      );
+
+      // 3.7 Create stock transaction (IN to destination)
+      await stockTransactionModel.create(
+        {
+          branch_id: toBranchId,
+          product_variant_id,
+          type: "TRANSFER",
+          reference_id: transferId,
+          quantity: approved_qty,
+          direction: "IN",
+          created_by: userId,
+        },
+        client
+      );
+
+      // 3.8 Create stock adjustment records for audit trail
+      // Adjustment OUT for source branch
+      await client.query(
+        `INSERT INTO stock_adjustment 
+         (branch_id, product_variant_id, adjustment_type, quantity, reason, created_by)
+         VALUES ($1, $2, 'OUT', $3, $4, $5)`,
+        [
+          fromBranchId,
+          product_variant_id,
+          approved_qty,
+          `Requisition ${requisition.code} - Transfer to Branch ${toBranchId}`,
+          userId,
+        ]
+      );
+
+      // Adjustment IN for destination branch
+      await client.query(
+        `INSERT INTO stock_adjustment 
+         (branch_id, product_variant_id, adjustment_type, quantity, reason, created_by)
+         VALUES ($1, $2, 'IN', $3, $4, $5)`,
+        [
+          toBranchId,
+          product_variant_id,
+          approved_qty,
+          `Requisition ${requisition.code} - Transfer from Branch ${fromBranchId}`,
+          userId,
+        ]
+      );
+    }
+
+    // 4. Update requisition status
+    await requisitionModel.update(
+      requisitionId,
+      {
+        status: "COMPLETED",
+        remarks: remarks || "Approved and transferred",
+        updated_by: userId,
+        updated_at: new Date(),
+      },
+      client
+    );
+
+    await client.query("COMMIT");
+
+    // 5. Fetch complete data for response
+    // const completeRequisition = await getRequisitionByIdHelper(
+    //   requisitionId,
+    //   client
+    // );
+    // const completeTransfer = await getTransferByIdHelper(transferId, client);
+
+    reply.send({
+      success: true,
+      // data: {
+      //   requisition: completeRequisition,
+      //   transfer: completeTransfer,
+      // },
+      message: "Requisition approved and stock transferred successfully",
+    });
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    console.error("Approve requisition error:", err);
+    reply.status(400).send({ success: false, message: err.message });
   } finally {
     client.release();
   }
