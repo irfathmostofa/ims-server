@@ -228,15 +228,41 @@ CREATE TABLE stock_transaction (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+
+CREATE TABLE requisition (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(20) UNIQUE NOT NULL, 
+  from_branch_id INT NOT NULL REFERENCES branch(id),
+  to_branch_id INT NOT NULL REFERENCES branch(id),
+  requisition_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED','COMPLETED')),
+  remarks TEXT,
+  approve_by INT REFERENCES users(id),
+  created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE requisition_items (
+  id SERIAL PRIMARY KEY,
+  requisition_id INT NOT NULL REFERENCES requisition(id) ON DELETE CASCADE,
+  product_variant_id INT NOT NULL REFERENCES product_variant(id),
+  requested_qty NUMERIC(12,2) NOT NULL CHECK (requested_qty >= 0),
+  approved_qty NUMERIC(12,2) CHECK (approved_qty >= 0),
+  remarks TEXT
+);
+
 CREATE TABLE product_transfer (
     id SERIAL PRIMARY KEY,
     from_branch_id INT REFERENCES branch(id),
     to_branch_id INT REFERENCES branch(id),
     transfer_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    type VARCHAR(50) NULL,
+    reference_id INT NULL,
     status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','RECEIVED','CANCELLED')),
     reference_no VARCHAR(50)
 );
-
 CREATE TABLE product_transfer_items (
     id SERIAL PRIMARY KEY,
     transfer_id INT REFERENCES product_transfer(id) ON DELETE CASCADE,
