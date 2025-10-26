@@ -260,7 +260,7 @@ CREATE TABLE product_transfer (
     to_branch_id INT REFERENCES branch(id),
     transfer_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     type VARCHAR(50) NULL,
-    reference_id INT NULL,
+    reference_id VARCHAR(20) NULL,
     status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','RECEIVED','CANCELLED')),
     created_by INT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

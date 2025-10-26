@@ -19,9 +19,9 @@ export const stockTransactionModel = new CrudModel(
 // Product Transfer
 export const productTransferModel = new CrudModel(
   "product_transfer",
-  ["code", "from_branch_id", "to_branch_id", "transfer_date"],
+  ["code", "from_branch_id", "to_branch_id"],
   [],
-  ["type", "reference_id", "status"]
+  ["transfer_date", "type", "reference_id", "status"]
 );
 
 // Product Transfer Items

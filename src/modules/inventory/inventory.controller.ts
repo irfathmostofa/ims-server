@@ -828,10 +828,9 @@ export async function updateRequisition(
       requisitionId,
       from_branch_id,
       to_branch_id,
-      transfer_date,
-      type,
-      reference_id,
+      requisition_date,
       status,
+      remarks,
       items,
     } = req.body as any;
 
@@ -856,10 +855,9 @@ export async function updateRequisition(
     const updateData: any = {};
     if (from_branch_id) updateData.from_branch_id = from_branch_id;
     if (to_branch_id) updateData.to_branch_id = to_branch_id;
-    if (transfer_date) updateData.transfer_date = transfer_date;
-    if (type) updateData.type = type;
-    if (reference_id !== undefined) updateData.reference_id = reference_id;
+    if (requisition_date) updateData.requisition_date = requisition_date;
     if (status) updateData.status = status;
+    if (remarks) updateData.remarks = remarks;
     updateData.updated_by = (req.user as any)?.id;
     updateData.updated_at = new Date();
 
@@ -954,11 +952,13 @@ export async function approveAndTransferRequisition(
   req: FastifyRequest<{
     Body: {
       id: string;
+      transfer_date: string;
       approved_items: Array<{
         requisition_item_id: number;
         product_variant_id: number;
         requested_qty: number;
         approved_qty: number;
+        remarks: string;
       }>;
       remarks?: string;
     };
@@ -970,7 +970,7 @@ export async function approveAndTransferRequisition(
     await client.query("BEGIN");
 
     const requisitionId = parseInt(req.body.id);
-    const { approved_items, remarks } = req.body;
+    const { transfer_date, approved_items, remarks } = req.body;
     const userId = (req.user as any)?.id;
 
     // 1. Get requisition details
@@ -1013,15 +1013,21 @@ export async function approveAndTransferRequisition(
         code: transferCode,
         from_branch_id: fromBranchId,
         to_branch_id: toBranchId,
-        reference_no: requisition.code,
-        status: "COMPLETED", // Auto-complete since we're processing immediately
+        transfer_date: transfer_date,
+        reference_id: requisition.code,
+        status: "RECEIVED", // Auto-complete since we're processing immediately
         created_by: userId,
       },
       client
     );
 
     const transferId = transfer.id;
-
+    await client.query(
+      `UPDATE requisition 
+         SET approve_by = $1 
+         WHERE id = $2`,
+      [userId, requisitionId]
+    );
     // 3. Process each approved item
     for (const item of approved_items) {
       const { product_variant_id, approved_qty, requisition_item_id } = item;
@@ -1033,9 +1039,9 @@ export async function approveAndTransferRequisition(
       // 3.1 Update requisition item with approved quantity
       await client.query(
         `UPDATE requisition_items 
-         SET approved_qty = $1 
-         WHERE id = $2 AND requisition_id = $3`,
-        [approved_qty, requisition_item_id, requisitionId]
+         SET approved_qty = $1 ,remarks=$2
+         WHERE id = $3 AND requisition_id = $4`,
+        [approved_qty, remarks, requisition_item_id, requisitionId]
       );
 
       // 3.2 Check stock availability in source branch
@@ -1084,7 +1090,6 @@ export async function approveAndTransferRequisition(
           reference_id: transferId,
           quantity: approved_qty,
           direction: "OUT",
-          created_by: userId,
         },
         client
       );
@@ -1108,7 +1113,6 @@ export async function approveAndTransferRequisition(
           reference_id: transferId,
           quantity: approved_qty,
           direction: "IN",
-          created_by: userId,
         },
         client
       );
@@ -1116,30 +1120,18 @@ export async function approveAndTransferRequisition(
       // 3.8 Create stock adjustment records for audit trail
       // Adjustment OUT for source branch
       await client.query(
-        `INSERT INTO stock_adjustment 
-         (branch_id, product_variant_id, adjustment_type, quantity, reason, created_by)
-         VALUES ($1, $2, 'OUT', $3, $4, $5)`,
-        [
-          fromBranchId,
-          product_variant_id,
-          approved_qty,
-          `Requisition ${requisition.code} - Transfer to Branch ${toBranchId}`,
-          userId,
-        ]
+        `INSERT INTO stock_transaction 
+         (branch_id, product_variant_id, type,reference_id, quantity, direction)
+         VALUES ($1, $2, 'TRANSFER', $3, $4, 'OUT')`,
+        [fromBranchId, product_variant_id, transferId, approved_qty]
       );
 
       // Adjustment IN for destination branch
       await client.query(
-        `INSERT INTO stock_adjustment 
-         (branch_id, product_variant_id, adjustment_type, quantity, reason, created_by)
-         VALUES ($1, $2, 'IN', $3, $4, $5)`,
-        [
-          toBranchId,
-          product_variant_id,
-          approved_qty,
-          `Requisition ${requisition.code} - Transfer from Branch ${fromBranchId}`,
-          userId,
-        ]
+        `INSERT INTO stock_transaction 
+         (branch_id, product_variant_id, type,reference_id, quantity, direction)
+         VALUES ($1, $2, 'TRANSFER', $3, $4, 'IN')`,
+        [toBranchId, product_variant_id, transferId, approved_qty]
       );
     }
 
