@@ -500,9 +500,10 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
 
 export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { category_id, search } = req.body as {
+    const { category_id, search, branch_id } = req.body as {
       category_id?: number;
       search?: string;
+      branch_id?: number;
     };
 
     let query = `
@@ -533,9 +534,20 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
           SELECT COALESCE(SUM(st.quantity), 0)
           FROM inventory_stock st
           WHERE st.product_variant_id = pv.id
+          ${branch_id ? "AND st.branch_id = $1" : ""}
         ) AS stock_qty,
         p.status,
-        pv.status AS variant_status
+        pv.status AS variant_status,
+        ${
+          branch_id
+            ? `(
+          SELECT b.name
+          FROM branch b
+          WHERE b.id = $1
+        ) AS branch_name,
+        $1 AS branch_id`
+            : `'All Branches' AS branch_name, NULL AS branch_id`
+        }
       FROM product p
       LEFT JOIN uom u ON u.id = p.uom_id
       LEFT JOIN product_variant pv ON pv.product_id = p.id
@@ -546,23 +558,31 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
     const params: any[] = [];
     let paramIndex = 1;
 
+    // Add branch_id as first parameter if provided
+    if (branch_id) {
+      params.push(branch_id);
+    }
+
     // Category filter
     if (category_id) {
       query += ` AND EXISTS (
         SELECT 1 FROM product_categories pc
-        WHERE pc.product_id = p.id AND pc.category_id = $${paramIndex++}
+        WHERE pc.product_id = p.id AND pc.category_id = $${paramIndex + 1}
       )`;
       params.push(category_id);
+      paramIndex++;
     }
 
-    // Search filter - search in product name, variant name, and codes
+    // Search filter
     if (search && search.trim() !== "") {
       query += ` AND (
-        p.name ILIKE $${paramIndex} OR 
-        p.code ILIKE $${paramIndex} OR
-        pv.name ILIKE $${paramIndex} OR
-        pv.code ILIKE $${paramIndex} OR
-        (p.name || ' (' || COALESCE(pv.name, '') || ')') ILIKE $${paramIndex}
+        p.name ILIKE $${paramIndex + 1} OR 
+        p.code ILIKE $${paramIndex + 1} OR
+        pv.name ILIKE $${paramIndex + 1} OR
+        pv.code ILIKE $${paramIndex + 1} OR
+        (p.name || ' (' || COALESCE(pv.name, '') || ')') ILIKE $${
+          paramIndex + 1
+        }
       )`;
       params.push(`%${search.trim()}%`);
       paramIndex++;
@@ -576,6 +596,11 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
       success: true,
       data: rows,
       count: rows.length,
+      filters: {
+        category_id: category_id || null,
+        branch_id: branch_id || null,
+        search: search || null,
+      },
     });
   } catch (error) {
     console.error("getProductsPOS error:", error);
