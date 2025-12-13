@@ -410,11 +410,12 @@ CREATE TABLE order_online (
     discount_amount DECIMAL(12,2) DEFAULT 0,
     net_amount DECIMAL(12,2) GENERATED ALWAYS AS (total_amount - discount_amount) STORED,
     is_cod BOOLEAN DEFAULT FALSE,
-    order_status VARCHAR(20) DEFAULT 'PENDING' CHECK (order_status IN ('PENDING','CONFIRMED','DISPATCHED','DELIVERED','CANCELLED')),
+    order_status VARCHAR(20) DEFAULT 'PENDING' CHECK (order_status IN ('PENDING','CONFIRMED','PROCESSING','SHIPPED','DELIVERED','CANCELLED','REFUNDED')),
     payment_status VARCHAR(20) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID','PAID','REFUNDED')),
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE TABLE order_item_online (
     id SERIAL PRIMARY KEY,
     order_id INT REFERENCES order_online(id) ON DELETE CASCADE,

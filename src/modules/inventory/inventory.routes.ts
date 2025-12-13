@@ -15,18 +15,20 @@ import {
   getRequisitionById,
   approveAndTransferRequisition,
   getRequisition,
+  listTransfers,
 } from "./inventory.controller";
 
 export async function inventoryRoutes(app: FastifyInstance) {
   app.addHook("onRequest", app.authenticate);
   // Inventory Stock
   app.post("/stock", addStock);
-  app.get("/stock", listStock);
+  app.post("/get-stock", listStock);
   app.get("/stock/adjustments", getStockAdjustments);
   // Stock Transactions
   app.post("/create-stock/transaction", createStockTransaction);
 
   // Product Transfers
+  app.post("/get-transfers", listTransfers);
   app.post("/create-transfer", createProductTransfer);
   app.post("/receive-transfer/:id/receive", receiveProductTransfer);
   app.post("/cancel-transfer/:id/cancel", cancelProductTransfer);

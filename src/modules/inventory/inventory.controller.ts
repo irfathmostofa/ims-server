@@ -34,17 +34,87 @@ export async function addStock(req: FastifyRequest, reply: FastifyReply) {
 }
 export async function listStock(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { branch_id, product_variant_id } = req.query as any;
-    const filters: Record<string, any> = {};
-    if (branch_id) filters.branch_id = branch_id;
-    if (product_variant_id) filters.product_variant_id = product_variant_id;
+    const {
+      branch_id,
+      product_variant_id,
+      page = 1,
+      limit = 10,
+    } = req.body as any;
 
-    const stocks = await inventoryStockModel.findWithPagination(
-      1,
-      1000,
-      filters
-    );
-    reply.send(successResponse(stocks, "Stock list retrieved successfully"));
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Base query
+    let query = `
+      SELECT 
+        ins.id AS stock_id,
+        ins.quantity,
+        b.id AS branch_id,
+        b.name AS branch_name,
+        b.code AS branch_code,
+        pv.id AS variant_id,
+        pv.name AS variant_name,
+        pv.code AS variant_code,
+        p.id AS product_id,
+        p.name AS product_name,
+        p.code AS product_code,
+        p.selling_price,
+        p.cost_price
+      FROM inventory_stock AS ins
+      JOIN branch AS b ON b.id = ins.branch_id
+      JOIN product_variant AS pv ON pv.id = ins.product_variant_id
+      JOIN product AS p ON p.id = pv.product_id
+    `;
+
+    let whereClause = "";
+    const params: any[] = [];
+
+    // Build WHERE clause
+    if (branch_id || product_variant_id) {
+      whereClause = " WHERE ";
+      const conditions = [];
+
+      if (branch_id) {
+        conditions.push(`ins.branch_id = $${params.length + 1}`);
+        params.push(branch_id);
+      }
+
+      if (product_variant_id) {
+        conditions.push(`ins.product_variant_id = $${params.length + 1}`);
+        params.push(product_variant_id);
+      }
+
+      whereClause += conditions.join(" AND ");
+    }
+
+    // Get total count
+    const countQuery = `SELECT COUNT(*) as total FROM inventory_stock AS ins ${whereClause}`;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+
+    // Get paginated data
+    query += whereClause;
+    query += ` ORDER BY b.name, p.name LIMIT $${params.length + 1} OFFSET $${
+      params.length + 2
+    }`;
+    params.push(limitNum, offset);
+
+    const stocksResult = await pool.query(query, params);
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    const response = {
+      data: stocksResult.rows,
+      pagination: {
+        current_page: pageNum,
+        per_page: limitNum,
+        total,
+        total_pages: totalPages,
+      },
+    };
+
+    reply.send(successResponse(response, "Stock list retrieved successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
@@ -1170,5 +1240,165 @@ export async function approveAndTransferRequisition(
     reply.status(400).send({ success: false, message: err.message });
   } finally {
     client.release();
+  }
+}
+export async function listTransfers(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      from_branch_id,
+      to_branch_id,
+      start_date,
+      end_date,
+      search,
+    } = req.body as any;
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    let query = `
+      SELECT 
+        pt.*,
+        fb.name AS from_branch_name,
+        fb.code AS from_branch_code,
+        tb.name AS to_branch_name,
+        tb.code AS to_branch_code,
+        u.username AS created_by_name,
+        
+        -- Aggregate items info
+        (
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', pti.id,
+              'product_variant_id', pti.product_variant_id,
+              'quantity', pti.quantity,
+              'product_name', p.name,
+              'variant_name', pv.name,
+              'product_code', p.code,
+              'variant_code', pv.code
+            )
+          )
+          FROM product_transfer_items pti
+          JOIN product_variant pv ON pv.id = pti.product_variant_id
+          JOIN product p ON p.id = pv.product_id
+          WHERE pti.transfer_id = pt.id
+        ) AS items,
+
+        -- Calculate total items and quantity
+        (
+          SELECT COUNT(*) 
+          FROM product_transfer_items 
+          WHERE transfer_id = pt.id
+        ) AS total_items,
+        
+        (
+          SELECT COALESCE(SUM(quantity), 0)
+          FROM product_transfer_items 
+          WHERE transfer_id = pt.id
+        ) AS total_quantity
+
+      FROM product_transfer pt
+      LEFT JOIN branch fb ON fb.id = pt.from_branch_id
+      LEFT JOIN branch tb ON tb.id = pt.to_branch_id
+      LEFT JOIN users u ON u.id = pt.created_by
+      WHERE 1=1
+    `;
+
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM product_transfer pt
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    const countParams: any[] = [];
+
+    // Add filters
+    if (status) {
+      query += ` AND pt.status = $${params.length + 1}`;
+      countQuery += ` AND pt.status = $${countParams.length + 1}`;
+      params.push(status);
+      countParams.push(status);
+    }
+
+    if (from_branch_id) {
+      query += ` AND pt.from_branch_id = $${params.length + 1}`;
+      countQuery += ` AND pt.from_branch_id = $${countParams.length + 1}`;
+      params.push(from_branch_id);
+      countParams.push(from_branch_id);
+    }
+
+    if (to_branch_id) {
+      query += ` AND pt.to_branch_id = $${params.length + 1}`;
+      countQuery += ` AND pt.to_branch_id = $${countParams.length + 1}`;
+      params.push(to_branch_id);
+      countParams.push(to_branch_id);
+    }
+
+    if (start_date) {
+      query += ` AND DATE(pt.transfer_date) >= $${params.length + 1}`;
+      countQuery += ` AND DATE(pt.transfer_date) >= $${countParams.length + 1}`;
+      params.push(start_date);
+      countParams.push(start_date);
+    }
+
+    if (end_date) {
+      query += ` AND DATE(pt.transfer_date) <= $${params.length + 1}`;
+      countQuery += ` AND DATE(pt.transfer_date) <= $${countParams.length + 1}`;
+      params.push(end_date);
+      countParams.push(end_date);
+    }
+
+    if (search) {
+      const searchParam = `%${search}%`;
+      query += ` AND (
+        pt.code ILIKE $${params.length + 1} OR
+        pt.reference_id ILIKE $${params.length + 1} OR
+        fb.name ILIKE $${params.length + 1} OR
+        tb.name ILIKE $${params.length + 1}
+      )`;
+      countQuery += ` AND (
+        pt.code ILIKE $${countParams.length + 1} OR
+        pt.reference_id ILIKE $${countParams.length + 1}
+      )`;
+      params.push(searchParam);
+      countParams.push(searchParam);
+    }
+
+    // Add ordering and pagination
+    query += ` ORDER BY pt.transfer_date DESC, pt.created_at DESC`;
+    query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limitNum, offset);
+
+    // Execute queries
+    const [transfersResult, countResult] = await Promise.all([
+      pool.query(query, params),
+      pool.query(countQuery, countParams),
+    ]);
+
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    const response = {
+      data: transfersResult.rows,
+      pagination: {
+        current_page: pageNum,
+        per_page: limitNum,
+        total_items: total,
+        total_pages: totalPages,
+        has_previous: pageNum > 1,
+        has_next: pageNum < totalPages,
+      },
+    };
+
+    reply.send(
+      successResponse(response, "Transfers list retrieved successfully")
+    );
+  } catch (err: any) {
+    console.error("List transfers error:", err);
+    reply.status(400).send({ success: false, message: err.message });
   }
 }

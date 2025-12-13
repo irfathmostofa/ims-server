@@ -329,6 +329,7 @@ export async function getAllOrders(
         c.phone AS customer_phone,
         dm.name AS delivery_method_name,
         pm.name AS payment_method_name,
+        ca.*,
         (
           SELECT json_agg(
             json_build_object(
@@ -349,6 +350,7 @@ export async function getAllOrders(
         ) AS items
       FROM order_online o
       LEFT JOIN customer c ON o.customer_id = c.id
+      LEFT JOIN customer_address ca ON o.delivery_address_id = ca.id
       LEFT JOIN delivery_method dm ON o.delivery_method_id = dm.id
       LEFT JOIN payment_method pm ON o.payment_method_id = pm.id
       ${whereClause}
