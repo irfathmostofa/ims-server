@@ -6,7 +6,7 @@ import {
   createProductTransfer,
   receiveProductTransfer,
   cancelProductTransfer,
-  getStockAdjustments,
+  getStockLedger,
   saleStock,
   transferStock,
   adjustStock,
@@ -23,7 +23,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   // Inventory Stock
   app.post("/stock", addStock);
   app.post("/get-stock", listStock);
-  app.get("/stock/adjustments", getStockAdjustments);
+  app.post("/stock/adjustments", getStockLedger);
   // Stock Transactions
   app.post("/create-stock/transaction", createStockTransaction);
 

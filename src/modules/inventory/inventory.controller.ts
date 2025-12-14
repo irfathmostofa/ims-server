@@ -321,63 +321,155 @@ export async function cancelProductTransfer(
     reply.status(400).send({ success: false, message: err.message });
   }
 }
-export async function getStockAdjustments(
-  req: FastifyRequest,
-  reply: FastifyReply
-) {
+
+export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { branch_id, product_variant_id, date_from, date_to } =
-      req.query as any;
+    const {
+      branch_id,
+      product_variant_id,
+      date_from,
+      date_to,
+      page = 1,
+      limit = 20,
+      search,
+    } = req.body as any;
+
+    const pageNum = parseInt(page.toString());
+    const limitNum = parseInt(limit.toString());
+    const offset = (pageNum - 1) * limitNum;
 
     const values: any[] = [];
-    const conditions: string[] = ["type = 'ADJUSTMENT'"];
     let paramCount = 0;
 
-    if (branch_id) {
+    const conditions: string[] = [];
+
+    // Add filters
+    if (branch_id && branch_id !== "") {
       paramCount++;
-      conditions.push(`branch_id = $${paramCount}`);
+      conditions.push(`st.branch_id = $${paramCount}`);
       values.push(branch_id);
     }
 
-    if (product_variant_id) {
+    if (product_variant_id && product_variant_id !== "") {
       paramCount++;
-      conditions.push(`product_variant_id = $${paramCount}`);
+      conditions.push(`st.product_variant_id = $${paramCount}`);
       values.push(product_variant_id);
     }
 
-    if (date_from) {
+    if (date_from && date_from !== "") {
       paramCount++;
-      conditions.push(`created_at >= $${paramCount}`);
+      conditions.push(`DATE(st.created_at) >= $${paramCount}`);
       values.push(date_from);
     }
 
-    if (date_to) {
+    if (date_to && date_to !== "") {
       paramCount++;
-      conditions.push(`created_at <= $${paramCount}`);
+      conditions.push(`DATE(st.created_at) <= $${paramCount}`);
       values.push(date_to);
     }
 
-    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+    if (search && search !== "") {
+      const searchParam = `%${search}%`;
+      paramCount++;
+      conditions.push(`(
+        p.name ILIKE $${paramCount} OR 
+        p.code ILIKE $${paramCount} OR 
+        pv.name ILIKE $${paramCount} OR
+        b.name ILIKE $${paramCount}
+      )`);
+      values.push(searchParam);
+    }
 
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    // Main query for stock adjustments
     const query = `
-      SELECT st.*, 
-             b.name as branch_name, 
-             pv.name as variant_name, 
-             pv.code as variant_code
+      SELECT 
+        st.id,
+        st.branch_id,
+        b.name as branch_name,
+        b.code as branch_code,
+        st.product_variant_id,
+        p.name as product_name,
+        p.code as product_code,
+        pv.name as variant_name,
+        pv.code as variant_code,
+        st.quantity,
+        st.direction,
+        st.type,
+        st.reference_id,
+        st.created_at
       FROM stock_transaction st
       LEFT JOIN branch b ON st.branch_id = b.id
       LEFT JOIN product_variant pv ON st.product_variant_id = pv.id
+      LEFT JOIN product p ON p.id = pv.product_id
       ${whereClause}
       ORDER BY st.created_at DESC
-      LIMIT 100
+      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
     `;
 
-    const { rows } = await pool.query(query, values);
+    // Count query
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM stock_transaction st
+      LEFT JOIN branch b ON st.branch_id = b.id
+      LEFT JOIN product_variant pv ON st.product_variant_id = pv.id
+      LEFT JOIN product p ON p.id = pv.product_id
+      ${whereClause}
+    `;
+
+    // Add pagination parameters
+    values.push(limitNum, offset);
+
+    // Get count values (without pagination params)
+    const countValues = values.slice(0, -2);
+
+    // Execute queries
+    const [result, countResult] = await Promise.all([
+      pool.query(query, values),
+      pool.query(countQuery, countValues),
+    ]);
+
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    const totalPages = Math.ceil(total / limitNum);
+
+    // Calculate summary
+    let totalIn = 0;
+    let totalOut = 0;
+
+    result.rows.forEach((row: any) => {
+      if (row.direction === "IN") {
+        totalIn += parseFloat(row.quantity);
+      } else if (row.direction === "OUT") {
+        totalOut += parseFloat(row.quantity);
+      }
+    });
+
+    const response = {
+      data: result.rows,
+      pagination: {
+        current_page: pageNum,
+        per_page: limitNum,
+        total_items: total,
+        total_pages: totalPages,
+        has_previous: pageNum > 1,
+        has_next: pageNum < totalPages,
+      },
+      summary: {
+        total_records: result.rows.length,
+        total_items: total,
+        total_in: totalIn,
+        total_out: totalOut,
+        net_change: totalIn - totalOut,
+      },
+    };
 
     reply.send(
-      successResponse(rows, "Stock adjustments retrieved successfully")
+      successResponse(response, "Stock adjustments retrieved successfully")
     );
   } catch (err: any) {
+    console.error("Stock adjustments error:", err);
     reply.status(400).send({ success: false, message: err.message });
   }
 }
