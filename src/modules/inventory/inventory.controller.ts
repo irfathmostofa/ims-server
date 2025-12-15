@@ -3,7 +3,6 @@ import { successResponse } from "../../core/utils/response";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 import pool from "../../config/db";
 import {
-  inventoryStockModel,
   productTransferItemsModel,
   productTransferModel,
   requisitionItemsModel,
@@ -331,6 +330,7 @@ export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
       date_to,
       page = 1,
       limit = 20,
+      type,
       search,
     } = req.body as any;
 
@@ -344,6 +344,11 @@ export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
     const conditions: string[] = [];
 
     // Add filters
+    if (type && type !== "") {
+      paramCount++;
+      conditions.push(`st.type = $${paramCount}`);
+      values.push(type);
+    }
     if (branch_id && branch_id !== "") {
       paramCount++;
       conditions.push(`st.branch_id = $${paramCount}`);
