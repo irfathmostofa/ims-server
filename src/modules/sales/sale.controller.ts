@@ -2,6 +2,7 @@ import pool from "../../config/db";
 import { FastifyRequest, FastifyReply } from "fastify";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 import { invoiceItemModel, invoiceModel, paymentModel } from "./sale.model";
+import { stockTransactionModel } from "../inventory/inventory.model";
 
 // ===== TYPES =====
 interface InvoiceItem {
@@ -48,10 +49,11 @@ interface UpdateInvoiceBody {
 /**
  * Calculate invoice totals from items
  */
-function calculateInvoiceTotals(items: InvoiceItem[]) {
+function calculateInvoiceTotals(items: any[]): number {
   return items.reduce((total, item) => {
-    const itemTotal = item.quantity * item.unit_price - (item.discount || 0);
-    return total + itemTotal;
+    const itemTotal = item.quantity * item.unit_price;
+    const discountAmount = item.discount || 0;
+    return total + (itemTotal - discountAmount);
   }, 0);
 }
 
@@ -111,6 +113,22 @@ export async function createInvoice(
     // Calculate total amount
     const total_amount = calculateInvoiceTotals(items);
 
+    // Calculate initial paid amount
+    let initialPaidAmount = 0;
+    if (payments && payments.length > 0) {
+      initialPaidAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    }
+
+    // Determine initial status based on payments
+    let initialStatus: "PAID" | "PARTIAL" | "DUE";
+    if (initialPaidAmount === 0) {
+      initialStatus = "DUE";
+    } else if (initialPaidAmount >= total_amount) {
+      initialStatus = "PAID";
+    } else {
+      initialStatus = "PARTIAL";
+    }
+
     // Generate invoice code
     const code = await generatePrefixedId("invoice", type.substring(0, 3));
 
@@ -123,9 +141,9 @@ export async function createInvoice(
         type,
         invoice_date: invoice_date || new Date().toISOString().split("T")[0],
         total_amount,
-        paid_amount: 0,
-        status: "DUE",
-        created_by: userId, // Safe to use now
+        paid_amount: initialPaidAmount, // Set initial paid amount
+        status: initialStatus, // Set proper initial status
+        created_by: userId,
       },
       client
     );
@@ -140,7 +158,31 @@ export async function createInvoice(
           product_variant_id: item.product_variant_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
-          discount: 0,
+          discount: item.discount || 0,
+        },
+        client
+      );
+      
+      // Update inventory stock
+      await client.query(
+        `
+        INSERT INTO inventory_stock (branch_id, product_variant_id, quantity)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (branch_id, product_variant_id)
+        DO UPDATE SET quantity = inventory_stock.quantity - $3
+        `,
+        [branch_id, item.product_variant_id, item.quantity]
+      );
+      
+      // Record stock transaction
+      await stockTransactionModel.create(
+        {
+          branch_id: branch_id,
+          product_variant_id: item.product_variant_id,
+          type: "SALE",
+          reference_id: invoiceId,
+          quantity: item.quantity,
+          direction: "OUT",
         },
         client
       );
@@ -148,28 +190,19 @@ export async function createInvoice(
 
     // Process payments if provided
     if (payments && payments.length > 0) {
-      let totalPaid = 0;
       for (const payment of payments) {
         await paymentModel.create(
           {
             invoice_id: invoiceId,
-            method: payment.method.toUpperCase() as "CASH" | "BANK" | "ONLINE", //  Handle case insensitive
+            method: payment.method.toUpperCase() as "CASH" | "BANK" | "ONLINE",
             amount: payment.amount,
             reference_no: payment.reference_no,
           },
           client
         );
-        totalPaid += payment.amount;
       }
-
-      // Update paid amount
-      await client.query("UPDATE invoice SET paid_amount = $1 WHERE id = $2", [
-        totalPaid,
-        invoiceId,
-      ]);
-
-      // Update status
-      await updateInvoiceStatus(invoiceId, client);
+      
+      // No need to update status again here since we already set it correctly
     }
 
     await client.query("COMMIT");
