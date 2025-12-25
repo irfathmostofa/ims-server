@@ -10,7 +10,7 @@ export default fp(async function (fastify) {
         signed: false, // not signed, just plain JWT
       },
       sign: {
-        expiresIn: "1h",
+        expiresIn: "90d",
       },
     });
   }
