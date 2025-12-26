@@ -20,43 +20,28 @@ interface VerifyOTPBody {
 
 const userModel = new CrudModel("users");
 
+const profileCache = new Map<string, any>();
+
 export async function login(req: FastifyRequest, reply: FastifyReply) {
-  const { phone, password } = req.body as { phone: string; password: string };
-
-  const users = await userModel.findByField("phone", phone);
-  if (!users.length) {
-    return reply.code(400).send({ message: "Invalid credentials" });
-  }
-
-  const user = users[0];
-  const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) {
-    return reply.code(400).send({ message: "Invalid credentials" });
-  }
-
-  const payload = {
-    id: user.id,
-    phone: user.phone,
-    username: user.username,
-    role_id: user.role_id,
-  };
-
-  const token = await reply.jwtSign(payload);
-  reply.send({ token });
-}
-
-export async function profile(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const userId = (req.user as any)?.id;
+    const { phone, password } = req.body as { phone: string; password: string };
 
-    if (!userId) {
-      return reply
-        .status(401)
-        .send({ success: false, message: "Unauthorized" });
+    // 1. Find user with optimized query
+    const users = await userModel.findByField("phone", phone);
+    if (!users.length) {
+      return reply.code(400).send({ message: "Invalid credentials" });
     }
 
-    const { rows } = await pool.query(
-      `
+    const user = users[0];
+
+    // 2. Verify password
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return reply.code(400).send({ message: "Invalid credentials" });
+    }
+
+    // 3. Get user profile with company and branch data
+    const profileQuery = `
       SELECT 
         u.id AS user_id,
         u.code AS user_code,
@@ -92,30 +77,25 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
         r.id AS role_id,
         r.code AS role_code,
         r.name AS role_name,
-        r.description AS role_description,
-
-        (
-          SELECT COALESCE(json_agg(sd.*), '[]'::json)
-          FROM setup_data sd
-        ) AS setup_data 
+        r.description AS role_description
 
       FROM users u
       JOIN branch b ON b.id = u.branch_id
       JOIN company c ON c.id = b.company_id
       JOIN role r ON r.id = u.role_id
       WHERE u.id = $1
-      `,
-      [userId]
-    );
+      LIMIT 1
+    `;
+
+    const { rows } = await pool.query(profileQuery, [user.id]);
 
     if (rows.length === 0) {
-      return reply
-        .status(404)
-        .send({ success: false, message: "User not found" });
+      return reply.code(404).send({ message: "User profile not found" });
     }
 
     const u = rows[0];
 
+    // 4. Organize response data
     const organized = {
       id: u.user_id,
       code: u.user_code,
@@ -156,13 +136,171 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
         name: u.role_name,
         description: u.role_description,
       },
-
-      setup_data: u.setup_data || [],
     };
+
+    // 5. Generate JWT token
+    const payload = {
+      id: user.id,
+      phone: user.phone,
+      username: user.username,
+      role_id: user.role_id,
+    };
+
+    const token = await reply.jwtSign(payload);
+
+    // 6. Cache the profile
+    profileCache.set(`user_${user.id}`, organized);
+
+    // 7. Single response with both token and user data
+    reply.send({
+      success: true,
+      token,
+      user: organized,
+      message: "Login successful",
+    });
+  } catch (err: any) {
+    console.error("Login error:", err);
+    reply.code(500).send({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+}
+
+export async function profile(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const userId = (req.user as any)?.id;
+
+    if (!userId) {
+      return reply.code(401).send({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    // Check cache first
+    const cacheKey = `user_${userId}`;
+    const cachedProfile = profileCache.get(cacheKey);
+
+    if (cachedProfile) {
+      return reply.send(
+        successResponse(cachedProfile, "User profile fetched from cache")
+      );
+    }
+
+    // Optimized query without setup_data to reduce complexity
+    const profileQuery = `
+      SELECT 
+        u.id AS user_id,
+        u.code AS user_code,
+        u.username,
+        u.phone,
+        u.address,
+        u.image,
+        u.status AS user_status,
+        u.branch_id,
+        u.role_id,
+        u.created_at,
+
+        b.id AS branch_id,
+        b.code AS branch_code,
+        b.name AS branch_name,
+        b.type AS branch_type,
+        b.address AS branch_address,
+        b.phone AS branch_phone,
+        b.status AS branch_status,
+        b.company_id AS branch_company_id,
+
+        c.id AS company_id,
+        c.code AS company_code,
+        c.name AS company_name,
+        c.address AS company_address,
+        c.phone AS company_phone,
+        c.email AS company_email,
+        c.logo AS company_logo,
+        c.website AS company_website,
+        c.status AS company_status,
+
+        r.id AS role_id,
+        r.code AS role_code,
+        r.name AS role_name,
+        r.description AS role_description
+
+      FROM users u
+      JOIN branch b ON b.id = u.branch_id
+      JOIN company c ON c.id = b.company_id
+      JOIN role r ON r.id = u.role_id
+      WHERE u.id = $1
+      LIMIT 1
+    `;
+
+    const { rows } = await pool.query(profileQuery, [userId]);
+
+    if (rows.length === 0) {
+      return reply.code(404).send({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const u = rows[0];
+
+    const organized = {
+      id: u.user_id,
+      code: u.user_code,
+      username: u.username,
+      phone: u.phone,
+      address: u.address,
+      image: u.image,
+      status: u.user_status,
+      created_at: u.created_at,
+
+      branch: {
+        id: u.branch_id,
+        code: u.branch_code,
+        name: u.branch_name,
+        type: u.branch_type,
+        address: u.branch_address,
+        phone: u.branch_phone,
+        status: u.branch_status,
+        company_id: u.branch_company_id,
+      },
+
+      company: {
+        id: u.company_id,
+        code: u.company_code,
+        name: u.company_name,
+        address: u.company_address,
+        phone: u.company_phone,
+        email: u.company_email,
+        logo: u.company_logo,
+        website: u.company_website,
+        status: u.company_status,
+      },
+
+      role: {
+        id: u.role_id,
+        code: u.role_code,
+        name: u.role_name,
+        description: u.role_description,
+      },
+    };
+
+    // Cache the result
+    profileCache.set(cacheKey, organized);
+
+    // Clear cache after 5 minutes
+    setTimeout(() => {
+      profileCache.delete(cacheKey);
+    }, 5 * 60 * 1000);
 
     reply.send(successResponse(organized, "User profile fetched successfully"));
   } catch (err: any) {
-    reply.status(500).send({ success: false, message: err.message });
+    console.error("Profile error:", err);
+    reply.code(500).send({
+      success: false,
+      message: "Internal server error",
+    });
   }
 }
 
