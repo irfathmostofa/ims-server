@@ -15,6 +15,7 @@ import coaRoutes from "../modules/coa/coa.routes";
 import fastifyOauth2 from "@fastify/oauth2";
 import templateRoutes from "../modules/template/template.routes";
 import orderRoutes from "../modules/order/order.routes";
+import { CouponRoutes } from "../modules/coupon/coupon.routes";
 
 dotenv.config();
 
@@ -52,4 +53,5 @@ app.register(poRoutes, { prefix: "/po" });
 app.register(coaRoutes, { prefix: "/coa" });
 app.register(templateRoutes, { prefix: "/template" });
 app.register(orderRoutes, { prefix: "/order" });
+app.register(CouponRoutes, { prefix: "/coupon" });
 export default app;
