@@ -495,4 +495,179 @@ CREATE TABLE template_section (
     last_update INT REFERENCES users(id),
     last_update_date TIMESTAMP
 );
+CREATE TABLE coupons (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT NOT NULL,
+    discount_type VARCHAR(20) CHECK (discount_type IN ('percentage', 'fixed')) NOT NULL,
+    discount_value DECIMAL(10, 2) NOT NULL CHECK (discount_value >= 0),
+    min_purchase_amount DECIMAL(10, 2) CHECK (min_purchase_amount >= 0),
+    max_discount_amount DECIMAL(10, 2) CHECK (max_discount_amount >= 0),
+    usage_limit INTEGER CHECK (usage_limit > 0),
+    usage_count INTEGER DEFAULT 0 CHECK (usage_count >= 0),
+    start_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    applicable_to VARCHAR(30) DEFAULT 'all' CHECK (applicable_to IN ('all', 'specific_categories', 'specific_products')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Add constraints
+    CONSTRAINT end_date_after_start_date CHECK (end_date > start_date),
+    CONSTRAINT usage_count_limit CHECK (usage_count <= COALESCE(usage_limit, usage_count)),
+    
+    -- For percentage discounts, ensure percentage is valid
+    CONSTRAINT valid_percentage CHECK (
+        discount_type != 'percentage' OR 
+        (discount_value >= 0 AND discount_value <= 100)
+    )
+);
 
+-- Indexes for performance
+CREATE INDEX idx_coupons_code ON coupons(code);
+CREATE INDEX idx_coupons_is_active ON coupons(is_active);
+CREATE INDEX idx_coupons_dates ON coupons(start_date, end_date);
+CREATE INDEX idx_coupons_active_dates ON coupons(is_active, start_date, end_date);
+
+CREATE TABLE coupon_applicable_categories (
+    id SERIAL PRIMARY KEY,
+    coupon_id INTEGER NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+    category_id INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(coupon_id, category_id)
+);
+
+CREATE TABLE coupon_applicable_products (
+    id SERIAL PRIMARY KEY,
+    coupon_id INTEGER NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL, 
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(coupon_id, product_id)
+);
+CREATE TABLE coupon_usage_history (
+    id SERIAL PRIMARY KEY,
+    coupon_id INTEGER NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+    order_id INTEGER NOT NULL, 
+    user_id INTEGER NOT NULL, 
+    discount_amount DECIMAL(10, 2) NOT NULL CHECK (discount_amount >= 0),
+    used_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    
+);
+-- SEO
+CREATE TABLE social_platform (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,          -- Facebook, Instagram
+    code VARCHAR(30) UNIQUE NOT NULL,   -- META_FB, META_IG
+    is_active BOOLEAN DEFAULT TRUE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE social_catalog (
+    id SERIAL PRIMARY KEY,
+    platform_id INT REFERENCES social_platform(id),
+
+    catalog_id VARCHAR(100),        -- Meta catalog ID
+    business_id VARCHAR(100),
+    access_token TEXT,
+
+    sync_enabled BOOLEAN DEFAULT TRUE,
+    last_sync_at TIMESTAMP,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE product_social_mapping (
+    id SERIAL PRIMARY KEY,
+    product_id INT REFERENCES product(id),
+    platform_id INT REFERENCES social_platform(id),
+
+    external_product_id VARCHAR(100), -- Meta product ID
+    sync_status VARCHAR(30) DEFAULT 'pending', -- pending, synced, failed
+    last_synced_at TIMESTAMP,
+
+    UNIQUE (product_id, platform_id)
+);
+CREATE TABLE social_inventory_sync (
+    id SERIAL PRIMARY KEY,
+    product_id INT REFERENCES product(id),
+    platform_id INT REFERENCES social_platform(id),
+
+    stock_sent INT,
+    availability VARCHAR(30), -- in stock, out of stock
+
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE social_sync_log (
+    id SERIAL PRIMARY KEY,
+    platform_id INT REFERENCES social_platform(id),
+    product_id INT REFERENCES product(id),
+
+    action VARCHAR(30),  -- create, update, delete
+    status VARCHAR(30),  -- success, failed
+    response_message TEXT,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE social_order (
+    id SERIAL PRIMARY KEY,
+    platform_id INT REFERENCES social_platform(id),
+    external_order_id VARCHAR(100),
+
+    order_id INT REFERENCES orders(id), -- your internal order
+    status VARCHAR(30),
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE seo_meta (
+    id SERIAL PRIMARY KEY,
+
+    entity_type VARCHAR(30) NOT NULL, 
+    -- product, category, page, brand
+    entity_id INT NOT NULL,
+
+    meta_title VARCHAR(255),
+    meta_description VARCHAR(500),
+    meta_keywords TEXT,
+
+    canonical_url VARCHAR(255),
+
+    og_title VARCHAR(255),
+    og_description VARCHAR(500),
+    og_image VARCHAR(255),
+
+    twitter_title VARCHAR(255),
+    twitter_description VARCHAR(500),
+    twitter_image VARCHAR(255),
+
+    schema_json JSONB,
+
+    is_index BOOLEAN DEFAULT TRUE,
+    is_follow BOOLEAN DEFAULT TRUE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (entity_type, entity_id)
+);
+CREATE TABLE seo_redirect (
+    id SERIAL PRIMARY KEY,
+    old_url VARCHAR(255) UNIQUE NOT NULL,
+    new_url VARCHAR(255) NOT NULL,
+    redirect_type INT DEFAULT 301,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE seo_keyword (
+    id SERIAL PRIMARY KEY,
+    entity_type VARCHAR(30),
+    entity_id INT,
+    keyword VARCHAR(255)
+);
+CREATE TABLE seo_sitemap (
+    id SERIAL PRIMARY KEY,
+    url VARCHAR(255) UNIQUE NOT NULL,
+    priority DECIMAL(2,1) DEFAULT 0.5,
+    change_freq VARCHAR(20), -- daily, weekly
+    last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

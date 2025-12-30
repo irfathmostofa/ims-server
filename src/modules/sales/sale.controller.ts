@@ -3,6 +3,7 @@ import { FastifyRequest, FastifyReply } from "fastify";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 import { invoiceItemModel, invoiceModel, paymentModel } from "./sale.model";
 import { stockTransactionModel } from "../inventory/inventory.model";
+import { successResponse } from "../../core/utils/response";
 
 // ===== TYPES =====
 interface InvoiceItem {
@@ -116,7 +117,10 @@ export async function createInvoice(
     // Calculate initial paid amount
     let initialPaidAmount = 0;
     if (payments && payments.length > 0) {
-      initialPaidAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
+      initialPaidAmount = payments.reduce(
+        (sum, payment) => sum + payment.amount,
+        0
+      );
     }
 
     // Determine initial status based on payments
@@ -162,7 +166,7 @@ export async function createInvoice(
         },
         client
       );
-      
+
       // Update inventory stock
       await client.query(
         `
@@ -173,7 +177,7 @@ export async function createInvoice(
         `,
         [branch_id, item.product_variant_id, item.quantity]
       );
-      
+
       // Record stock transaction
       await stockTransactionModel.create(
         {
@@ -201,7 +205,7 @@ export async function createInvoice(
           client
         );
       }
-      
+
       // No need to update status again here since we already set it correctly
     }
 
@@ -592,7 +596,77 @@ export async function addPayment(
     client.release();
   }
 }
+export async function getAllPayments(
+  req: FastifyRequest<{
+    Body: { page?: string; limit?: string; filters?: any };
+  }>,
+  reply: FastifyReply
+) {
+  try {
+    const { page = "1", limit = "10" } = req.body;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
 
+    const query = `
+      SELECT 
+        p.*,
+        i.code AS invoice_code,
+        i.type AS invoice_type,
+        party.name AS party_name,
+        party.phone AS party_phone,
+        
+        -- Simple items array
+        (
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'product_name', p2.name,
+              'quantity', ii.quantity,
+              'unit_price', ii.unit_price,
+              'total', ii.subtotal
+            )
+          )
+          FROM invoice_items ii
+          JOIN product_variant pv ON ii.product_variant_id = pv.id
+          JOIN product p2 ON pv.product_id = p2.id
+          WHERE ii.invoice_id = i.id
+        ) AS items,
+        
+        COUNT(*) OVER() as total_count
+        
+      FROM payments p
+      JOIN invoice i ON p.invoice_id = i.id
+      JOIN party ON i.party_id = party.id
+      ORDER BY p.payment_date DESC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const paymentsResult = await pool.query(query, [limitNum, offset]);
+
+    const totalCount = paymentsResult.rows[0]?.total_count || 0;
+    const payments = paymentsResult.rows.map(({ total_count, ...rest }) => {
+      // Ensure items is an array
+      if (!rest.items || !Array.isArray(rest.items)) {
+        rest.items = [];
+      }
+      return rest;
+    });
+
+    const response = {
+      data: payments,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: parseInt(totalCount),
+        totalPages: Math.ceil(totalCount / limitNum),
+      },
+    };
+
+    reply.send(successResponse(response, "Payments retrieved successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
 /**
  * Get Invoice Payments
  */

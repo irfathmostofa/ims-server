@@ -706,7 +706,10 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
       const poItem = poItemRows[0];
       if (!poItem) throw new Error(`PO item ${item.po_item_id} not found`);
 
-      const receivedQty = Math.min(item.received_quantity, poItem.quantity - poItem.received_quantity);
+      const receivedQty = Math.min(
+        item.received_quantity,
+        poItem.quantity - poItem.received_quantity
+      );
       if (receivedQty <= 0) continue; // skip if fully received
 
       // Check if GRN item already exists (prevents duplicate)
@@ -736,7 +739,13 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
             (grn_id, product_variant_id, ordered_quantity, received_quantity, notes)
            VALUES ($1, $2, $3, $4, $5)
            RETURNING *`,
-          [grn.id, poItem.product_variant_id, poItem.quantity, receivedQty, item.notes || null]
+          [
+            grn.id,
+            poItem.product_variant_id,
+            poItem.quantity,
+            receivedQty,
+            item.notes || null,
+          ]
         );
         grnItem = newRows[0];
       }
@@ -804,7 +813,6 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
     client.release();
   }
 }
-
 
 export async function getGRNById(req: FastifyRequest, reply: FastifyReply) {
   try {
@@ -942,3 +950,171 @@ export async function listGRNs(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+// export async function listGRNs(req: FastifyRequest, reply: FastifyReply) {
+//   try {
+//     const {
+//       page = 1,
+//       limit = 10,
+//       status,
+//       purchase_order_id,
+//       date_from,
+//       date_to,
+//       search,
+//     } = req.body as any;
+
+//     const pageNum = parseInt(page.toString());
+//     const limitNum = parseInt(limit.toString());
+//     const offset = (pageNum - 1) * limitNum;
+
+//     // Build WHERE conditions
+//     const conditions: string[] = [];
+//     const params: any[] = [];
+//     let paramIndex = 1;
+
+//     if (status) {
+//       conditions.push(`grn.status = $${paramIndex}`);
+//       params.push(status);
+//       paramIndex++;
+//     }
+
+//     if (purchase_order_id) {
+//       conditions.push(`grn.purchase_order_id = $${paramIndex}`);
+//       params.push(parseInt(purchase_order_id));
+//       paramIndex++;
+//     }
+
+//     if (date_from) {
+//       conditions.push(`grn.received_date >= $${paramIndex}`);
+//       params.push(date_from);
+//       paramIndex++;
+//     }
+
+//     if (date_to) {
+//       conditions.push(`grn.received_date <= $${paramIndex}`);
+//       params.push(date_to);
+//       paramIndex++;
+//     }
+
+//     if (search) {
+//       conditions.push(
+//         `(grn.code ILIKE $${paramIndex} OR po.code ILIKE $${paramIndex})`
+//       );
+//       params.push(`%${search}%`);
+//       paramIndex++;
+//     }
+
+//     const whereClause =
+//       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+//     // Single query with subqueries for items and summary
+//     const query = `
+//       SELECT
+//         grn.*,
+//         u.username as received_by_name,
+//         po.code as purchase_order_code,
+//         po.supplier_id,
+//         (
+//           SELECT COALESCE(
+//             JSON_AGG(
+//               JSON_BUILD_OBJECT(
+//                 'id', gi.id,
+//                 'product_variant_id', gi.product_variant_id,
+//                 'ordered_quantity', gi.ordered_quantity,
+//                 'received_quantity', gi.received_quantity,
+//                 'discrepancy', gi.discrepancy,
+//                 'notes', gi.notes,
+//                 'product_name', p.name,
+//                 'product_code', p.code,
+//                 'variant_name', pv.name,
+//                 'unit_cost', p.cost_price,
+//                 'line_total', p.cost_price * gi.received_quantity
+//               ) ORDER BY p.name
+//             ), '[]'::json
+//           )
+//           FROM grn_items gi
+//           JOIN product_variant pv ON gi.product_variant_id = pv.id
+//           JOIN product p ON pv.product_id = p.id
+//           WHERE gi.grn_id = grn.id
+//         ) as items,
+//         (
+//           SELECT JSON_BUILD_OBJECT(
+//             'total_items', COUNT(gi.id),
+//             'total_ordered', COALESCE(SUM(gi.ordered_quantity), 0),
+//             'total_received', COALESCE(SUM(gi.received_quantity), 0),
+//             'total_discrepancy', COALESCE(SUM(gi.discrepancy), 0),
+//             'total_value', COALESCE(SUM(p.cost_price * gi.received_quantity), 0)
+//           )
+//           FROM grn_items gi
+//           JOIN product_variant pv ON gi.product_variant_id = pv.id
+//           JOIN product p ON pv.product_id = p.id
+//           WHERE gi.grn_id = grn.id
+//         ) as summary,
+
+//         COUNT(*) OVER() as total_count
+
+//       FROM goods_received_note grn
+//       LEFT JOIN users u ON grn.received_by = u.id
+//       LEFT JOIN purchase_order po ON grn.purchase_order_id = po.id
+//       ${whereClause}
+//       ORDER BY grn.created_at DESC
+//       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+//     `;
+
+//     params.push(limitNum, offset);
+
+//     const result = await pool.query(query, params);
+
+//     if (result.rows.length === 0) {
+//       return reply.send(
+//         successResponse(
+//           {
+//             data: [],
+//             page: pageNum,
+//             limit: limitNum,
+//             total: 0,
+//             totalPages: 0,
+//           },
+//           "GRNs retrieved successfully"
+//         )
+//       );
+//     }
+
+//     const totalCount = parseInt(result.rows[0].total_count || "0");
+
+//     // Remove total_count from each row
+//     const grns = result.rows.map((row) => {
+//       const { total_count, ...grnData } = row;
+
+//       // Ensure items is always an array
+//       if (!grnData.items || !Array.isArray(grnData.items)) {
+//         grnData.items = [];
+//       }
+
+//       // Ensure summary exists
+//       if (!grnData.summary) {
+//         grnData.summary = {
+//           total_items: 0,
+//           total_ordered: 0,
+//           total_received: 0,
+//           total_discrepancy: 0,
+//           total_value: 0,
+//         };
+//       }
+
+//       return grnData;
+//     });
+
+//     const response = {
+//       data: grns,
+//       page: pageNum,
+//       limit: limitNum,
+//       total: totalCount,
+//       totalPages: Math.ceil(totalCount / limitNum),
+//     };
+
+//     reply.send(successResponse(response, "GRNs retrieved successfully"));
+//   } catch (err: any) {
+//     console.error("Error retrieving GRNs:", err);
+//     reply.status(400).send({ success: false, message: err.message });
+//   }
+// }

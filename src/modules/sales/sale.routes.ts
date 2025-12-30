@@ -5,6 +5,7 @@ import {
   deleteInvoice,
   deletePayment,
   getAllInvoices,
+  getAllPayments,
   getInvoice,
   getInvoicePayments,
   getInvoiceSummary,
@@ -24,6 +25,7 @@ export default async function salesRoutes(app: FastifyInstance) {
   app.post("/delete-invoices/:id", deleteInvoice);
 
   app.post("/create-invoices/:id/payments", addPayment);
+  app.post("/get-payments", getAllPayments);
 
   app.get("/get-invoices/:id/payments", getInvoicePayments);
 
