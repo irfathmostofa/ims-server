@@ -8,6 +8,7 @@ import {
   purchaseOrderItemsModel,
   purchaseOrderModel,
 } from "./po.model";
+import { invoiceItemModel, invoiceModel } from "../sales/sale.model";
 
 // ========== PURCHASE ORDER CRUD ==========
 
@@ -139,6 +140,8 @@ export async function getAllPurchaseOrders(
         b.name as branch_name,
         p.name as supplier_name,
         p.phone as supplier_phone,
+        p.email as supplier_email,
+        p.address as supplier_address,
         u.username as created_by_name,
         COALESCE(SUM(poi.quantity), 0) as total_quantity,
         COALESCE(SUM(poi.received_quantity), 0) as total_received,
@@ -161,7 +164,7 @@ export async function getAllPurchaseOrders(
       LEFT JOIN users u ON po.created_by = u.id
       LEFT JOIN purchase_order_items poi ON po.id = poi.order_id
       ${whereClause}
-      GROUP BY po.id, b.name, p.name, p.phone, u.username
+      GROUP BY po.id, b.name, p.name, p.phone, p.email, p.address, u.username
       ORDER BY po.created_at DESC
       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
     `;
@@ -682,7 +685,27 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
 
     // 2️⃣ Generate GRN code
     const grn_code = await generatePrefixedId("goods_received_note", "GRN");
+    const invoice_code = await generatePrefixedId("invoice", "PO");
 
+    // Create invoice
+    const invoice = await invoiceModel.create(
+      {
+        code: invoice_code,
+        branch_id: po.branch_id,
+        party_id: po.supplier_id,
+        type: "PURCHASE",
+        invoice_date: grn_date || new Date().toISOString().split("T")[0],
+        total_amount: items.reduce(
+          (acc: any, item: any) =>
+            acc + item.received_quantity * item.unit_price,
+          0
+        ),
+        paid_amount: 0,
+        status: "DUE",
+        created_by: received_by,
+      },
+      client
+    );
     // 3️⃣ Insert GRN
     const { rows: grnRows } = await client.query(
       `INSERT INTO goods_received_note
@@ -775,6 +798,16 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
           (branch_id, product_variant_id, type, reference_id, quantity, direction)
          VALUES ($1, $2, 'PURCHASE', $3, $4, 'IN')`,
         [po.branch_id, poItem.product_variant_id, grn.id, receivedQty]
+      );
+      await invoiceItemModel.create(
+        {
+          invoice_id: invoice.id,
+          product_variant_id: poItem.product_variant_id,
+          quantity: poItem.quantity,
+          unit_price: poItem.unit_price,
+          discount: 0,
+        },
+        client
       );
     }
 
