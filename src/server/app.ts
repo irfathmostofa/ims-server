@@ -11,11 +11,11 @@ import partyRoutes from "../modules/party/party.routes";
 import { inventoryRoutes } from "../modules/inventory/inventory.routes";
 import salesRoutes from "../modules/sales/sale.routes";
 import poRoutes from "../modules/Purchase-Order/po.routes";
-import coaRoutes from "../modules/coa/coa.routes";
 import fastifyOauth2 from "@fastify/oauth2";
 import templateRoutes from "../modules/template/template.routes";
 import orderRoutes from "../modules/order/order.routes";
 import { CouponRoutes } from "../modules/coupon/coupon.routes";
+import { accountRoutes } from "../modules/accounts/accounts.routes";
 
 dotenv.config();
 
@@ -50,7 +50,7 @@ app.register(partyRoutes, { prefix: "/party" });
 app.register(inventoryRoutes, { prefix: "/inventory" });
 app.register(salesRoutes, { prefix: "/sales" });
 app.register(poRoutes, { prefix: "/po" });
-app.register(coaRoutes, { prefix: "/coa" });
+app.register(accountRoutes, { prefix: "/accounts" });
 app.register(templateRoutes, { prefix: "/template" });
 app.register(orderRoutes, { prefix: "/order" });
 app.register(CouponRoutes, { prefix: "/coupon" });

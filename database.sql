@@ -303,30 +303,56 @@ CREATE TABLE payments (
     payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     reference_no VARCHAR(50)
 );
-CREATE TABLE coa (
+CREATE TABLE account_head (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE,
-    parent_id INT REFERENCES coa(id),
+    code VARCHAR(20) NOT NULL,
     name VARCHAR(100) NOT NULL,
-    type VARCHAR(20) CHECK (type IN ('ASSET','LIABILITY','INCOME','EXPENSE'))
+    type VARCHAR(20) CHECK (type IN ('ASSET','LIABILITY','INCOME','EXPENSE','EQUITY')),
+    parent_id INT REFERENCES account_head(id),
+    status CHAR(1) DEFAULT 'A'
 );
-
-CREATE TABLE journal_entry (
+CREATE TABLE account (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(20) UNIQUE,
-    entry_date DATE DEFAULT CURRENT_DATE,
-    reference_type VARCHAR(50),
-    reference_id INT,
+    branch_id INT REFERENCES branch(id),
+    head_id INT REFERENCES account_head(id),
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    account_no VARCHAR(50),
+    opening_balance NUMERIC(14,2) DEFAULT 0,
+    opening_balance_type VARCHAR(2) CHECK (opening_balance_type IN ('DR','CR')),
+    status CHAR(1) DEFAULT 'A',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE journal_lines (
+CREATE TABLE accounting_period (
     id SERIAL PRIMARY KEY,
-    journal_id INT REFERENCES journal_entry(id) ON DELETE CASCADE,
-    account_id INT REFERENCES coa(id),
-    debit DECIMAL(12,2) DEFAULT 0,
-    credit DECIMAL(12,2) DEFAULT 0
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    is_closed BOOLEAN DEFAULT FALSE
 );
+CREATE TABLE journal_entry (
+    id SERIAL PRIMARY KEY,
+    branch_id INT REFERENCES branch(id),
+    entry_no VARCHAR(30) UNIQUE NOT NULL,
+    entry_date DATE NOT NULL,
+    period_id INT REFERENCES accounting_period(id),
+    source_module VARCHAR(30), 
+    source_id INT,
+    narration TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE journal_line (
+    id SERIAL PRIMARY KEY,
+    journal_entry_id INT REFERENCES journal_entry(id) ON DELETE CASCADE,
+    account_id INT REFERENCES account(id),
+    debit NUMERIC(14,2) DEFAULT 0,
+    credit NUMERIC(14,2) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (debit >= 0 AND credit >= 0),
+    CHECK (debit = 0 OR credit = 0)
+);
+
+
 CREATE TABLE activity_log (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id),
