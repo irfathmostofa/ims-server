@@ -8,6 +8,7 @@ import {
 } from "./accounts.model";
 import { successResponse } from "../../core/utils/response";
 import pool from "../../config/db";
+import { generatePrefixedId } from "../../core/models/idGenerator";
 
 // account head
 export async function createAccountHead(
@@ -16,6 +17,7 @@ export async function createAccountHead(
 ) {
   try {
     const data = req.body as any;
+    data.code = await generatePrefixedId("account_head", "AH");
     const head = await accountHeadModel.create(data);
     reply.send(successResponse(head, "Account head created successfully"));
   } catch (err: any) {
@@ -53,7 +55,7 @@ export async function deleteAccountHead(
   reply: FastifyReply
 ) {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.body as { id: string };
     const deleted = await accountHeadModel.delete(parseInt(id));
     reply.send(successResponse(deleted, "Account head deleted successfully"));
   } catch (err: any) {
@@ -65,6 +67,7 @@ export async function deleteAccountHead(
 export async function createAccount(req: FastifyRequest, reply: FastifyReply) {
   try {
     const data = req.body as any;
+    data.code = await generatePrefixedId("account", "AC");
     const account = await accountModel.create(data);
     reply.send(successResponse(account, "Account created successfully"));
   } catch (err: any) {
@@ -98,7 +101,7 @@ export async function updateAccount(req: FastifyRequest, reply: FastifyReply) {
 
 export async function deleteAccount(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.body as { id: string };
     const deleted = await accountModel.delete(parseInt(id));
     reply.send(successResponse(deleted, "Account deleted successfully"));
   } catch (err: any) {
@@ -157,7 +160,7 @@ export async function deleteAccountingPeriod(
   reply: FastifyReply
 ) {
   try {
-    const { id } = req.params as { id: string };
+    const { id } = req.body as { id: string };
     const deleted = await accountingPeriodModel.delete(parseInt(id));
     reply.send(
       successResponse(deleted, "Accounting period deleted successfully")
@@ -177,7 +180,7 @@ export async function createJournalEntry(
     await client.query("BEGIN");
 
     const { lines, ...entryData } = req.body as any;
-
+    entryData.code = await generatePrefixedId("journal_entry", "JE");
     // Create journal entry
     const entry = await journalEntryModel.create(entryData);
 
@@ -362,5 +365,90 @@ export async function recordJournalTransaction({
     throw err;
   } finally {
     client.release();
+  }
+}
+
+export async function getJournalEntries(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const {
+      branch_id,
+      period_id,
+      source_module,
+      date_from,
+      date_to,
+      page = 1,
+      limit = 20,
+    } = req.body as any;
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    const conditions: string[] = [];
+    const values: any[] = [];
+    let i = 1;
+
+    if (branch_id) {
+      conditions.push(`je.branch_id = $${i++}`);
+      values.push(branch_id);
+    }
+
+    if (period_id) {
+      conditions.push(`je.period_id = $${i++}`);
+      values.push(period_id);
+    }
+
+    if (source_module) {
+      conditions.push(`je.source_module = $${i++}`);
+      values.push(source_module);
+    }
+
+    if (date_from) {
+      conditions.push(`je.entry_date >= $${i++}`);
+      values.push(date_from);
+    }
+
+    if (date_to) {
+      conditions.push(`je.entry_date <= $${i++}`);
+      values.push(date_to);
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const query = `
+      SELECT 
+        je.id,
+        je.entry_no,
+        je.entry_date,
+        je.branch_id,
+        je.source_module,
+        je.source_id,
+        je.narration,
+        COALESCE(SUM(jl.debit), 0) AS total_debit,
+        COALESCE(SUM(jl.credit), 0) AS total_credit
+      FROM journal_entry je
+      LEFT JOIN journal_line jl ON je.id = jl.journal_entry_id
+      ${whereClause}
+      GROUP BY je.id
+      ORDER BY je.entry_date DESC, je.id DESC
+      LIMIT $${i++} OFFSET $${i}
+    `;
+
+    values.push(limitNum, offset);
+
+    const { rows } = await pool.query(query, values);
+
+    reply.send(
+      successResponse(rows, "Journal entries retrieved successfully")
+    );
+  } catch (err: any) {
+    reply.status(400).send({
+      success: false,
+      message: err.message,
+    });
   }
 }
