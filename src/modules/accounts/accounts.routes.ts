@@ -17,6 +17,7 @@ import {
   updateJournalEntry,
   deleteJournalEntry,
   getJournalEntries,
+  manualJournalTransaction,
 } from "./accounts.controller";
 
 export async function accountRoutes(app: FastifyInstance) {
@@ -38,6 +39,7 @@ export async function accountRoutes(app: FastifyInstance) {
   app.post("/delete-accounting-period", deleteAccountingPeriod);
   // Journal Entries
   app.post("/journal-entry", createJournalEntry);
+  app.post("/menual-journal-entry", manualJournalTransaction);
   app.get("/journal-entries", listJournalEntries);
   app.post("/get-journal-entries", getJournalEntries);
   app.post("/update-journal-entry/:id", updateJournalEntry);

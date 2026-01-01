@@ -282,7 +282,48 @@ export async function deleteJournalEntry(
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+export async function manualJournalTransaction(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { branch_id, period_id, entry_date, narration, lines } =
+      req.body as any;
 
+    const {
+      rows: [period],
+    } = await pool.query(
+      "SELECT is_closed FROM accounting_period WHERE id = $1",
+      [period_id]
+    );
+
+    if (!period) {
+      throw new Error("Accounting period not found");
+    }
+
+    if (period.is_closed) {
+      throw new Error("Cannot post journal in a closed accounting period");
+    }
+
+    const journal = await recordJournalTransaction({
+      branch_id,
+      period_id,
+      entry_date,
+      source_module: "MANUAL_JOURNAL",
+      narration,
+      lines,
+    });
+
+    reply.send(
+      successResponse(journal, "Manual journal entry created successfully")
+    );
+  } catch (error: any) {
+    reply.status(400).send({
+      success: false,
+      message: error.message,
+    });
+  }
+}
 export async function recordJournalTransaction({
   branch_id,
   period_id,
@@ -319,7 +360,7 @@ export async function recordJournalTransaction({
     await client.query("BEGIN");
 
     // Generate unique entry number
-    const entryNo = `JE${Date.now()}`;
+    const entryNo = await generatePrefixedId("journal_entry", "ENT");
 
     // Insert journal entry
     const {
@@ -327,7 +368,7 @@ export async function recordJournalTransaction({
     } = await client.query(
       `
       INSERT INTO journal_entry
-        (branch_id, period_id, entry_no, entry_date, source_module, source_id, narration)
+        (branch_id, period_id, code, entry_date, source_module, source_id, narration)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
       `,
@@ -350,7 +391,7 @@ export async function recordJournalTransaction({
           (journal_entry_id, account_id, debit, credit)
         VALUES ($1, $2, $3, $4)
         `,
-        [journalEntry.id, line.account_id, line.debit || 0, line.credit || 0]
+        [journalEntry.id, line.account_id, line.debit, line.credit]
       );
     }
 
@@ -419,33 +460,83 @@ export async function getJournalEntries(
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+    // Count total records for pagination
+    const countQuery = `
+      SELECT COUNT(DISTINCT je.id) as total
+      FROM journal_entry je
+      ${whereClause}
+    `;
+
+    const countResult = await pool.query(
+      countQuery,
+      values.slice(0, conditions.length)
+    );
+    const totalRecords = parseInt(countResult.rows[0].total);
+
     const query = `
       SELECT 
         je.id,
-        je.entry_no,
+        je.code,
         je.entry_date,
         je.branch_id,
+        je.period_id,
         je.source_module,
         je.source_id,
         je.narration,
-        COALESCE(SUM(jl.debit), 0) AS total_debit,
-        COALESCE(SUM(jl.credit), 0) AS total_credit
+        je.created_at,
+        (
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', jl.id,
+              'journal_entry_id', jl.journal_entry_id,
+              'account_id', jl.account_id,
+              'debit_amount', jl.debit,
+              'credit_amount', jl.credit,
+              'account_code', a.code,
+              'account_name', a.name
+            ) ORDER BY jl.id
+          )
+          FROM journal_line jl
+          JOIN account a ON jl.account_id = a.id
+          WHERE jl.journal_entry_id = je.id
+        ) AS lines,
+        (
+          SELECT COALESCE(SUM(debit), 0)
+          FROM journal_line jl2
+          WHERE jl2.journal_entry_id = je.id
+        ) as total_debit,
+        (
+          SELECT COALESCE(SUM(credit), 0)
+          FROM journal_line jl3
+          WHERE jl3.journal_entry_id = je.id
+        ) as total_credit
       FROM journal_entry je
-      LEFT JOIN journal_line jl ON je.id = jl.journal_entry_id
       ${whereClause}
-      GROUP BY je.id
       ORDER BY je.entry_date DESC, je.id DESC
-      LIMIT $${i++} OFFSET $${i}
+      LIMIT $${i} OFFSET $${i + 1}
     `;
 
-    values.push(limitNum, offset);
+    // Add limit and offset values
+    const queryValues = [...values, limitNum, offset];
 
-    const { rows } = await pool.query(query, values);
+    const { rows } = await pool.query(query, queryValues);
 
     reply.send(
-      successResponse(rows, "Journal entries retrieved successfully")
+      successResponse(
+        {
+          data: rows,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total: totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+        },
+        "Journal entries retrieved successfully"
+      )
     );
   } catch (err: any) {
+    console.error("Error fetching journal entries:", err);
     reply.status(400).send({
       success: false,
       message: err.message,
