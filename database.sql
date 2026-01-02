@@ -282,7 +282,10 @@ CREATE TABLE invoice (
     paid_amount DECIMAL(12,2) DEFAULT 0,
     due_amount DECIMAL(12,2) GENERATED ALWAYS AS (total_amount - paid_amount) STORED,
     status VARCHAR(10) DEFAULT 'DUE' CHECK (status IN ('PAID','PARTIAL','DUE')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE invoice_items (
@@ -301,7 +304,11 @@ CREATE TABLE payments (
     method VARCHAR(20) CHECK (method IN ('CASH','BANK','ONLINE')),
     amount DECIMAL(12,2) NOT NULL,
     payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    reference_no VARCHAR(50)
+    reference_no VARCHAR(50),
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE account_head (
     id SERIAL PRIMARY KEY,
@@ -309,7 +316,11 @@ CREATE TABLE account_head (
     name VARCHAR(100) NOT NULL,
     type VARCHAR(20) CHECK (type IN ('ASSET','LIABILITY','INCOME','EXPENSE','EQUITY')),
     parent_id INT REFERENCES account_head(id),
-    status CHAR(1) DEFAULT 'A'
+    status CHAR(1) DEFAULT 'A',
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE account (
     id SERIAL PRIMARY KEY,
@@ -321,14 +332,21 @@ CREATE TABLE account (
     opening_balance NUMERIC(14,2) DEFAULT 0,
     opening_balance_type VARCHAR(2) CHECK (opening_balance_type IN ('DR','CR')),
     status CHAR(1) DEFAULT 'A',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE accounting_period (
     id SERIAL PRIMARY KEY,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    is_closed BOOLEAN DEFAULT FALSE
+    is_closed BOOLEAN DEFAULT FALSE,
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE journal_entry (
     id SERIAL PRIMARY KEY,
@@ -339,7 +357,10 @@ CREATE TABLE journal_entry (
     source_module VARCHAR(30), 
     source_id INT,
     narration TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE journal_line (
     id SERIAL PRIMARY KEY,
@@ -412,8 +433,10 @@ CREATE TABLE delivery_method (
     auth_token TEXT,
     token_expiry TIMESTAMP,
     STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-     created_by INT REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE payment_method (
     id SERIAL PRIMARY KEY,
@@ -423,7 +446,10 @@ CREATE TABLE payment_method (
     provider VARCHAR(50),
     STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
      created_by INT REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE order_online (
     id SERIAL PRIMARY KEY,
@@ -439,7 +465,8 @@ CREATE TABLE order_online (
     order_status VARCHAR(20) DEFAULT 'PENDING' CHECK (order_status IN ('PENDING','CONFIRMED','PROCESSING','SHIPPED','DELIVERED','CANCELLED','REFUNDED')),
     payment_status VARCHAR(20) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID','PAID','REFUNDED')),
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE order_item_online (
@@ -463,8 +490,10 @@ CREATE TABLE order_delivery (
     cod_collected_date TIMESTAMP,
     courier_response JSONB,
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
-    created_by INT REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE order_payment_online (
     id SERIAL PRIMARY KEY,
@@ -587,21 +616,23 @@ CREATE TABLE social_platform (
     name VARCHAR(50) NOT NULL,          -- Facebook, Instagram
     code VARCHAR(30) UNIQUE NOT NULL,   -- META_FB, META_IG
     is_active BOOLEAN DEFAULT TRUE,
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE social_catalog (
     id SERIAL PRIMARY KEY,
     platform_id INT REFERENCES social_platform(id),
-
     catalog_id VARCHAR(100),        -- Meta catalog ID
     business_id VARCHAR(100),
     access_token TEXT,
-
     sync_enabled BOOLEAN DEFAULT TRUE,
     last_sync_at TIMESTAMP,
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_by INT REFERENCES users(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE product_social_mapping (
     id SERIAL PRIMARY KEY,

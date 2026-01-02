@@ -93,7 +93,7 @@ export async function getAllPurchaseOrders(
       supplier_id,
       date_from,
       date_to,
-    } = req.query as any;
+    } = req.body as any;
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const values: any[] = [];
@@ -134,6 +134,7 @@ export async function getAllPurchaseOrders(
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+    // Main query - keep it simple
     const query = `
       SELECT 
         po.*,
@@ -143,37 +144,86 @@ export async function getAllPurchaseOrders(
         p.email as supplier_email,
         p.address as supplier_address,
         u.username as created_by_name,
-        COALESCE(SUM(poi.quantity), 0) as total_quantity,
-        COALESCE(SUM(poi.received_quantity), 0) as total_received,
-        COALESCE(COUNT(poi.id), 0) as total_items,
-        COALESCE(json_agg(
-          json_build_object(
-            'id', poi.id,
-            'product_variant_id', poi.product_variant_id,
-            'quantity', poi.quantity,
-            'received_quantity', poi.received_quantity,
-            'unit_price', poi.unit_price,
-            'discount', poi.discount,
-            'tax_rate', poi.tax_rate,
-            'notes', poi.notes
+        (
+          SELECT COALESCE(SUM(poi2.quantity), 0)
+          FROM purchase_order_items poi2
+          WHERE poi2.order_id = po.id
+        ) as total_quantity,
+        (
+          SELECT COALESCE(SUM(poi2.received_quantity), 0)
+          FROM purchase_order_items poi2
+          WHERE poi2.order_id = po.id
+        ) as total_received,
+        (
+          SELECT COALESCE(COUNT(poi2.id), 0)
+          FROM purchase_order_items poi2
+          WHERE poi2.order_id = po.id
+        ) as total_items,
+        (
+          SELECT COALESCE(SUM((poi2.quantity * poi2.unit_price) - (poi2.quantity * poi2.unit_price * COALESCE(poi2.discount, 0) / 100)), 0)
+          FROM purchase_order_items poi2
+          WHERE poi2.order_id = po.id
+        ) as total_amount,
+        COALESCE((
+          SELECT json_agg(
+            json_build_object(
+              'id', poi3.id,
+              'product_variant_id', poi3.product_variant_id,
+              'product_variant_code', pv.code,
+              'product_variant_name', pv.name,
+              'product_id', prod.id,
+              'product_code', prod.code,
+              'product_name', prod.name,
+              'quantity', poi3.quantity,
+              'received_quantity', poi3.received_quantity,
+              'unit_price', poi3.unit_price,
+              'discount', poi3.discount,
+              'tax_rate', poi3.tax_rate,
+              'notes', poi3.notes
+            )
           )
-        ) FILTER (WHERE poi.id IS NOT NULL), '[]') as items
+          FROM purchase_order_items poi3
+          LEFT JOIN product_variant as pv ON pv.id = poi3.product_variant_id
+          LEFT JOIN product as prod ON prod.id = pv.product_id
+          WHERE poi3.order_id = po.id
+        ), '[]') as items
       FROM purchase_order po
       LEFT JOIN branch b ON po.branch_id = b.id
       LEFT JOIN party p ON po.supplier_id = p.id
       LEFT JOIN users u ON po.created_by = u.id
-      LEFT JOIN purchase_order_items poi ON po.id = poi.order_id
       ${whereClause}
-      GROUP BY po.id, b.name, p.name, p.phone, p.email, p.address, u.username
       ORDER BY po.created_at DESC
       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
     `;
 
     values.push(parseInt(limit), offset);
-
     const { rows } = await pool.query(query, values);
 
-    reply.send(successResponse(rows, "Purchase orders retrieved successfully"));
+    // Get total count
+    const countQuery = `SELECT COUNT(*) as total_count FROM purchase_order po ${whereClause}`;
+    const countResult = await pool.query(
+      countQuery,
+      conditions.length > 0 ? values.slice(0, -2) : []
+    );
+    const totalCount = parseInt(countResult.rows[0]?.total_count || "0");
+    const totalPages = Math.ceil(totalCount / parseInt(limit));
+
+    reply.send(
+      successResponse(
+        {
+          data: rows,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: totalCount,
+            total_pages: totalPages,
+            has_next: parseInt(page) < totalPages,
+            has_prev: parseInt(page) > 1,
+          },
+        },
+        "Purchase orders retrieved successfully"
+      )
+    );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
@@ -966,188 +1016,118 @@ export async function listGRNs(req: FastifyRequest, reply: FastifyReply) {
       limit = 10,
       status,
       purchase_order_id,
-    } = req.query as any;
-    const filters: Record<string, any> = {};
+      search,
+      from_date,
+      to_date,
+    } = req.body as any;
 
-    if (status) filters.status = status;
-    if (purchase_order_id) filters.purchase_order_id = purchase_order_id;
+    const pageNumber = parseInt(page as string, 10);
+    const limitNumber = parseInt(limit as string, 10);
+    const offset = (pageNumber - 1) * limitNumber;
 
-    const grns = await grnModel.findWithPagination(
-      parseInt(page),
-      parseInt(limit),
-      filters
-    );
+    let whereConditions = [];
+    const queryParams: any[] = [];
 
-    reply.send(successResponse(grns, "GRNs retrieved successfully"));
+    // Build WHERE clause dynamically
+    if (status) {
+      queryParams.push(status);
+      whereConditions.push(`grn.status = $${queryParams.length}`);
+    }
+
+    if (purchase_order_id) {
+      queryParams.push(purchase_order_id);
+      whereConditions.push(`grn.purchase_order_id = $${queryParams.length}`);
+    }
+
+    if (search) {
+      queryParams.push(`%${search}%`);
+      whereConditions.push(
+        `(grn.code ILIKE $${queryParams.length} OR u.username ILIKE $${queryParams.length})`
+      );
+    }
+
+    if (from_date) {
+      queryParams.push(from_date);
+      whereConditions.push(`grn.received_date >= $${queryParams.length}`);
+    }
+
+    if (to_date) {
+      queryParams.push(to_date);
+      whereConditions.push(`grn.received_date <= $${queryParams.length}`);
+    }
+
+    const whereClause =
+      whereConditions.length > 0
+        ? `WHERE ${whereConditions.join(" AND ")}`
+        : "";
+
+    // Query for paginated results
+    const queryParamsForData = [...queryParams, limitNumber, offset];
+    const dataQuery = `
+      SELECT 
+        grn.*,
+        u.username as received_by_name,
+        COALESCE(
+            json_agg(
+                json_build_object(
+                    'id', gi.id,
+                    'product_variant_id', gi.product_variant_id,
+                    'product_variant_code', pv.code,
+                    'product_variant_name', pv.name,
+                    'product_id', p.id,
+                    'product_code', p.code,
+                    'product_name', p.name,
+                    'ordered_quantity', gi.ordered_quantity,
+                    'received_quantity', gi.received_quantity,
+                    'discrepancy', gi.discrepancy,
+                    'notes', gi.notes
+                )
+            ) FILTER (WHERE gi.id IS NOT NULL),
+            '[]'::json
+        ) as items
+      FROM goods_received_note grn 
+      LEFT JOIN users as u ON u.id = grn.received_by
+      LEFT JOIN grn_items as gi ON gi.grn_id = grn.id
+      LEFT JOIN product_variant as pv ON pv.id = gi.product_variant_id
+      LEFT JOIN product as p ON p.id = pv.product_id
+      ${whereClause}
+      GROUP BY grn.id, u.id
+      ORDER BY grn.received_date DESC
+      LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+    `;
+
+    // Query for total count
+    const countQuery = `
+      SELECT COUNT(DISTINCT grn.id) as total_count
+      FROM goods_received_note grn 
+      LEFT JOIN users as u ON u.id = grn.received_by
+      ${whereClause}
+    `;
+
+    // Execute both queries in parallel
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(dataQuery, queryParamsForData),
+      pool.query(countQuery, queryParams),
+    ]);
+
+    const totalCount = parseInt(countResult.rows[0]?.total_count || "0", 10);
+    const totalPages = Math.ceil(totalCount / limitNumber);
+
+    const response = {
+      success: true,
+      data: dataResult.rows,
+      pagination: {
+        page: pageNumber,
+        limit: limitNumber,
+        total: totalCount,
+        total_pages: totalPages,
+        has_next: pageNumber < totalPages,
+        has_prev: pageNumber > 1,
+      },
+    };
+
+    reply.send(successResponse(response, "GRNs retrieved successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
-// export async function listGRNs(req: FastifyRequest, reply: FastifyReply) {
-//   try {
-//     const {
-//       page = 1,
-//       limit = 10,
-//       status,
-//       purchase_order_id,
-//       date_from,
-//       date_to,
-//       search,
-//     } = req.body as any;
-
-//     const pageNum = parseInt(page.toString());
-//     const limitNum = parseInt(limit.toString());
-//     const offset = (pageNum - 1) * limitNum;
-
-//     // Build WHERE conditions
-//     const conditions: string[] = [];
-//     const params: any[] = [];
-//     let paramIndex = 1;
-
-//     if (status) {
-//       conditions.push(`grn.status = $${paramIndex}`);
-//       params.push(status);
-//       paramIndex++;
-//     }
-
-//     if (purchase_order_id) {
-//       conditions.push(`grn.purchase_order_id = $${paramIndex}`);
-//       params.push(parseInt(purchase_order_id));
-//       paramIndex++;
-//     }
-
-//     if (date_from) {
-//       conditions.push(`grn.received_date >= $${paramIndex}`);
-//       params.push(date_from);
-//       paramIndex++;
-//     }
-
-//     if (date_to) {
-//       conditions.push(`grn.received_date <= $${paramIndex}`);
-//       params.push(date_to);
-//       paramIndex++;
-//     }
-
-//     if (search) {
-//       conditions.push(
-//         `(grn.code ILIKE $${paramIndex} OR po.code ILIKE $${paramIndex})`
-//       );
-//       params.push(`%${search}%`);
-//       paramIndex++;
-//     }
-
-//     const whereClause =
-//       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-
-//     // Single query with subqueries for items and summary
-//     const query = `
-//       SELECT
-//         grn.*,
-//         u.username as received_by_name,
-//         po.code as purchase_order_code,
-//         po.supplier_id,
-//         (
-//           SELECT COALESCE(
-//             JSON_AGG(
-//               JSON_BUILD_OBJECT(
-//                 'id', gi.id,
-//                 'product_variant_id', gi.product_variant_id,
-//                 'ordered_quantity', gi.ordered_quantity,
-//                 'received_quantity', gi.received_quantity,
-//                 'discrepancy', gi.discrepancy,
-//                 'notes', gi.notes,
-//                 'product_name', p.name,
-//                 'product_code', p.code,
-//                 'variant_name', pv.name,
-//                 'unit_cost', p.cost_price,
-//                 'line_total', p.cost_price * gi.received_quantity
-//               ) ORDER BY p.name
-//             ), '[]'::json
-//           )
-//           FROM grn_items gi
-//           JOIN product_variant pv ON gi.product_variant_id = pv.id
-//           JOIN product p ON pv.product_id = p.id
-//           WHERE gi.grn_id = grn.id
-//         ) as items,
-//         (
-//           SELECT JSON_BUILD_OBJECT(
-//             'total_items', COUNT(gi.id),
-//             'total_ordered', COALESCE(SUM(gi.ordered_quantity), 0),
-//             'total_received', COALESCE(SUM(gi.received_quantity), 0),
-//             'total_discrepancy', COALESCE(SUM(gi.discrepancy), 0),
-//             'total_value', COALESCE(SUM(p.cost_price * gi.received_quantity), 0)
-//           )
-//           FROM grn_items gi
-//           JOIN product_variant pv ON gi.product_variant_id = pv.id
-//           JOIN product p ON pv.product_id = p.id
-//           WHERE gi.grn_id = grn.id
-//         ) as summary,
-
-//         COUNT(*) OVER() as total_count
-
-//       FROM goods_received_note grn
-//       LEFT JOIN users u ON grn.received_by = u.id
-//       LEFT JOIN purchase_order po ON grn.purchase_order_id = po.id
-//       ${whereClause}
-//       ORDER BY grn.created_at DESC
-//       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-//     `;
-
-//     params.push(limitNum, offset);
-
-//     const result = await pool.query(query, params);
-
-//     if (result.rows.length === 0) {
-//       return reply.send(
-//         successResponse(
-//           {
-//             data: [],
-//             page: pageNum,
-//             limit: limitNum,
-//             total: 0,
-//             totalPages: 0,
-//           },
-//           "GRNs retrieved successfully"
-//         )
-//       );
-//     }
-
-//     const totalCount = parseInt(result.rows[0].total_count || "0");
-
-//     // Remove total_count from each row
-//     const grns = result.rows.map((row) => {
-//       const { total_count, ...grnData } = row;
-
-//       // Ensure items is always an array
-//       if (!grnData.items || !Array.isArray(grnData.items)) {
-//         grnData.items = [];
-//       }
-
-//       // Ensure summary exists
-//       if (!grnData.summary) {
-//         grnData.summary = {
-//           total_items: 0,
-//           total_ordered: 0,
-//           total_received: 0,
-//           total_discrepancy: 0,
-//           total_value: 0,
-//         };
-//       }
-
-//       return grnData;
-//     });
-
-//     const response = {
-//       data: grns,
-//       page: pageNum,
-//       limit: limitNum,
-//       total: totalCount,
-//       totalPages: Math.ceil(totalCount / limitNum),
-//     };
-
-//     reply.send(successResponse(response, "GRNs retrieved successfully"));
-//   } catch (err: any) {
-//     console.error("Error retrieving GRNs:", err);
-//     reply.status(400).send({ success: false, message: err.message });
-//   }
-// }
