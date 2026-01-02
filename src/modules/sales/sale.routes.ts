@@ -24,7 +24,7 @@ export default async function salesRoutes(app: FastifyInstance) {
 
   app.post("/delete-invoices/:id", deleteInvoice);
 
-  app.post("/create-invoices/:id/payments", addPayment);
+  app.post("/create-invoices/:id", addPayment);
   app.post("/get-payments", getAllPayments);
 
   app.get("/get-invoices/:id/payments", getInvoicePayments);

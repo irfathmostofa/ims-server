@@ -421,7 +421,7 @@ export async function updateInvoice(
     if (branch_id) updateData.branch_id = branch_id;
     if (party_id !== undefined) updateData.party_id = party_id;
     if (invoice_date) updateData.invoice_date = invoice_date;
-    updateData.updated_by = (req.user as { id: number }).id;
+    // updateData.updated_by = (req.user as { id: number }).id;
 
     if (Object.keys(updateData).length > 0) {
       await invoiceModel.update(invoiceId, updateData, client);
@@ -531,6 +531,7 @@ export async function addPayment(
   reply: FastifyReply
 ) {
   const client = await pool.connect();
+  const userId = (req.user as any)?.id;
   try {
     await client.query("BEGIN");
 
@@ -566,7 +567,7 @@ export async function addPayment(
         method,
         amount,
         reference_no,
-        created_by: (req.user as { id: number }).id,
+        // created_by: userId,
       },
       client
     );
