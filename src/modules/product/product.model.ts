@@ -29,7 +29,16 @@ export const productVariantModel = new CrudModel(
   "product_variant",
   ["product_id", "code"],
   ["code"],
-  ["name", "additional_price", "status", "created_by"]
+  [
+    "name",
+    "additional_price",
+    "status",
+    "created_by",
+    "weight",
+    "weight_unit",
+    "is_replaceable",
+    "SKU",
+  ]
 );
 
 export const productImageModel = new CrudModel(

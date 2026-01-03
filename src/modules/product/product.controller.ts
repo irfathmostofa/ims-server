@@ -213,6 +213,10 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
         additional_price: v.additional_price ?? 0,
         status: v.status || "A",
         created_by: userId,
+        weight: v.weight || null,
+        weight_unit: v.weight_unit || null,
+        is_replaceable: v.is_replaceable || false,
+        SKU: v.SKU || null,
       };
 
       const variant = await productVariantModel.create(variantData);
