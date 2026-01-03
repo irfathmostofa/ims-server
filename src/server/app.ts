@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import fastifyCors from "@fastify/cors";
 import fastifyHelmet from "@fastify/helmet";
+import fastifyMultipart from "@fastify/multipart";
 import dotenv from "dotenv";
 import authPlugin from "../core/plugins/auth";
 import userRoutes from "../modules/users/user.routes";
@@ -26,6 +27,7 @@ app.register(fastifyCors, {
   origin: "*",
 });
 app.register(fastifyHelmet);
+app.register(fastifyMultipart);
 app.register(authPlugin);
 app.register(fastifyOauth2, {
   name: "googleOAuth2",

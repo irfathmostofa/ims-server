@@ -34,6 +34,10 @@ import {
   updateProductVariant,
   updateUOM,
 } from "./product.controller";
+import {
+  bulkProductConfirm,
+  bulkProductPreview,
+} from "./productBulkController";
 
 export default async function productRoutes(app: FastifyInstance) {
   // app.addHook("onRequest", app.authenticate);
@@ -62,11 +66,13 @@ export default async function productRoutes(app: FastifyInstance) {
 
   // Product
   app.post("/products", { preHandler: [app.authenticate] }, createProduct);
-  app.post(
-    "/bulk-products",
-    { preHandler: [app.authenticate] },
-    bulkCreateProducts
-  );
+
+  app.post("/bulk-products", bulkCreateProducts);
+
+  app.post("/bulk/preview", bulkProductPreview);
+
+  app.post("/bulk/confirm", bulkProductConfirm);
+
   app.post("/get-all-products", getAllProducts);
   app.post("/get-pos-products", getProductsPOS);
   app.get("/products/search", searchProducts);

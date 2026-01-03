@@ -1,0 +1,273 @@
+import { FastifyRequest, FastifyReply } from "fastify";
+import { parse } from "papaparse";
+import XLSX from "xlsx";
+import pool from "../../config/db";
+import {
+  generatePrefixedId,
+  generateRandomBarcode,
+} from "../../core/models/idGenerator";
+import {
+  productModel,
+  productCategoryModel,
+  productVariantModel,
+  productBarcodeModel,
+  productImageModel,
+  productCatModel,
+} from "./product.model";
+
+type Variant = {
+  name: string;
+  additional_price: number;
+  SKU?: string;
+  weight?: number;
+  weight_unit?: string;
+  is_replaceable?: boolean;
+  status?: string;
+  images?: { url: string; alt_text?: string; is_primary?: boolean }[];
+};
+
+type ProductData = {
+  name: string;
+  code?: string;
+  status?: string;
+  categories?: { name: string; is_primary?: boolean }[];
+  variants?: Variant[];
+  created_by?: number;
+};
+
+type ProductPreview = {
+  row: number;
+  product_name: string;
+  category: string;
+  variant: Variant;
+};
+
+// ------------------- HELPER: parse CSV / XLSX -------------------
+async function parseFile(file: any): Promise<any[]> {
+  const buffer = await file.toBuffer();
+  const filename = file.filename || file.filepath;
+
+  if (filename.endsWith(".csv")) {
+    const csvString = buffer.toString("utf-8");
+    const parsed = parse(csvString, { header: true });
+    return parsed.data as any[];
+  } else if (filename.endsWith(".xlsx")) {
+    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    return XLSX.utils.sheet_to_json(sheet);
+  } else {
+    throw new Error("Unsupported file type. Only CSV or XLSX allowed.");
+  }
+}
+
+// ------------------- HELPER: GET OR CREATE CATEGORY -------------------
+async function getOrCreateCategory(name: string, userId: number) {
+  const existingCat = await productCatModel.findByField("name", name);
+  if (existingCat) return existingCat;
+
+  const newCat = await productCatModel.create({
+    code: await generatePrefixedId("category", "PCAT"),
+    name,
+    created_by: userId,
+  });
+  return newCat;
+}
+
+// ------------------- CREATE PRODUCT (USED INTERNALLY) -------------------
+export async function createProductInternal(
+  productData: ProductData,
+  userId: number
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // ------------------- PRODUCT -------------------
+    productData.code = await generatePrefixedId("product", "PROD");
+    productData.created_by = userId;
+    productData.status = productData.status || "A";
+
+    const product = await productModel.create(productData);
+
+    // ------------------- CATEGORIES -------------------
+    const categoryIds: { name: string; is_primary?: boolean }[] = [];
+
+    for (const cat of productData.categories || []) {
+      const catRecord = await getOrCreateCategory(cat.name, userId);
+
+      await productCategoryModel.create({
+        product_id: product.id,
+        category_id: catRecord.id,
+        is_primary: cat.is_primary || false,
+        created_by: userId,
+      });
+
+      categoryIds.push({
+        name: cat.name,
+        is_primary: cat.is_primary || false,
+      });
+    }
+
+    productData.categories = categoryIds;
+
+    // ------------------- VARIANTS -------------------
+    const variantsToCreate =
+      productData.variants && productData.variants.length > 0
+        ? productData.variants
+        : [
+            {
+              name: productData.name,
+              additional_price: 0,
+              images: [],
+            },
+          ];
+
+    for (const v of variantsToCreate) {
+      const variantData = {
+        code: await generatePrefixedId("product_variant", "VAR"),
+        product_id: product.id,
+        name: v.name,
+        additional_price: v.additional_price || 0,
+        status: v.status || "A",
+        created_by: userId,
+        weight: v.weight || null,
+        weight_unit: v.weight_unit || null,
+        is_replaceable: v.is_replaceable || false,
+        SKU: v.SKU || null,
+      };
+
+      const variant = await productVariantModel.create(variantData);
+
+      // ------------------- BARCODE -------------------
+      const barcode = await generateRandomBarcode(variantData.code);
+      await productBarcodeModel.create({
+        product_variant_id: variant.id,
+        barcode,
+        type: "EAN13",
+        is_primary: true,
+        status: "A",
+        created_by: userId,
+      });
+
+      // ------------------- IMAGES -------------------
+      for (const img of v.images || []) {
+        await productImageModel.create({
+          code: await generatePrefixedId("product_image", "IMG"),
+          product_variant_id: variant.id,
+          url: img.url,
+          alt_text: img.alt_text || "Product Image",
+          is_primary: img.is_primary || false,
+          status: "A",
+          created_by: userId,
+        });
+      }
+    }
+
+    await client.query("COMMIT");
+    return product;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ------------------- BULK PREVIEW -------------------
+export async function bulkProductPreview(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const userId = (req.user as { id: number })?.id;
+
+  try {
+    const file = await req.file();
+    if (!file) throw new Error("No file uploaded");
+
+    const rows = await parseFile(file);
+
+    const preview: ProductPreview[] = [];
+    const errors: { row: number; error: string }[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 1;
+
+      if (!row.product_name)
+        errors.push({ row: rowNum, error: "Product name required" });
+      if (!row.variant_name)
+        errors.push({ row: rowNum, error: "Variant name required" });
+
+      const additional_price = parseFloat(row.additional_price) || 0;
+      const weight = row.weight ? parseFloat(row.weight) : null;
+
+      const images = row.images
+        ? (row.images as string)
+            .split(",")
+            .map((url: string) => ({ url: url.trim() }))
+        : [];
+
+      preview.push({
+        row: rowNum,
+        product_name: row.product_name,
+        category: row.category || "",
+        variant: {
+          name: row.variant_name,
+          additional_price,
+          SKU: row.SKU || undefined,
+          weight: row.weight,
+          weight_unit: row.weight_unit || undefined,
+          images,
+        },
+      });
+    }
+
+    reply.send({
+      preview,
+      errors,
+      total: rows.length,
+      valid: preview.length - errors.length,
+    });
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+// ------------------- BULK CONFIRM -------------------
+export async function bulkProductConfirm(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const userId = (req.user as { id: number })?.id;
+  const products = (req.body as { products: any[] }).products;
+
+  if (!products || !Array.isArray(products)) {
+    return reply
+      .status(400)
+      .send({ success: false, message: "Invalid products array" });
+  }
+
+  const createdProducts: any[] = [];
+  const failedProducts: any[] = [];
+
+  for (const prod of products) {
+    try {
+      const product = await createProductInternal(prod, userId);
+      createdProducts.push(product);
+    } catch (err: any) {
+      failedProducts.push({
+        product: prod.name || prod.product_name,
+        error: err.message,
+      });
+    }
+  }
+
+  reply.send({
+    success: true,
+    created_count: createdProducts.length,
+    failed_count: failedProducts.length,
+    createdProducts,
+    failedProducts,
+  });
+}
