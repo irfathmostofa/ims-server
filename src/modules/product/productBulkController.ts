@@ -30,6 +30,9 @@ type ProductData = {
   name: string;
   code?: string;
   status?: string;
+  uom_id?: number;
+  cost_price?: number;
+  selling_price?: number;
   categories?: { name: string; is_primary?: boolean }[];
   variants?: Variant[];
   created_by?: number;
@@ -40,6 +43,9 @@ type ProductPreview = {
   product_name: string;
   category: string;
   variant: Variant;
+  uom_id?: number | null;
+  cost_price?: number | string | null;
+  selling_price?: number | string | null;
 };
 
 // ------------------- HELPER: parse CSV / XLSX -------------------
@@ -66,12 +72,29 @@ async function getOrCreateCategory(name: string, userId: number) {
   const existingCat = await productCatModel.findByField("name", name);
   if (existingCat) return existingCat;
 
+  const code = await generatePrefixedId("category", "PCAT");
   const newCat = await productCatModel.create({
-    code: await generatePrefixedId("category", "PCAT"),
+    code,
     name,
     created_by: userId,
   });
+
   return newCat;
+}
+
+// ------------------- VALIDATE PRODUCT DATA -------------------
+function validateProductData(data: Partial<ProductData>): string[] {
+  const errors: string[] = [];
+
+  if (!data.name) errors.push("Product name is required");
+  if (data.uom_id === undefined || data.uom_id === null)
+    errors.push("UOM ID is required");
+  if (data.cost_price === undefined || data.cost_price === null)
+    errors.push("Cost price is required");
+  if (data.selling_price === undefined || data.selling_price === null)
+    errors.push("Selling price is required");
+
+  return errors;
 }
 
 // ------------------- CREATE PRODUCT (USED INTERNALLY) -------------------
@@ -80,15 +103,33 @@ export async function createProductInternal(
   userId: number
 ) {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
+    // Validate required fields
+    const validationErrors = validateProductData(productData);
+    if (validationErrors.length > 0) {
+      throw new Error(`Validation failed: ${validationErrors.join(", ")}`);
+    }
+
     // ------------------- PRODUCT -------------------
-    productData.code = await generatePrefixedId("product", "PROD");
+    productData.code =
+      productData.code || (await generatePrefixedId("product", "PROD"));
     productData.created_by = userId;
     productData.status = productData.status || "A";
 
-    const product = await productModel.create(productData);
+    const productInfo = {
+      code: productData.code,
+      name: productData.name,
+      uom_id: productData.uom_id!,
+      cost_price: productData.cost_price!,
+      selling_price: productData.selling_price!,
+      status: productData.status,
+      created_by: productData.created_by,
+    };
+
+    const product = await productModel.create(productInfo);
 
     // ------------------- CATEGORIES -------------------
     const categoryIds: { name: string; is_primary?: boolean }[] = [];
@@ -180,7 +221,7 @@ export async function bulkProductPreview(
   reply: FastifyReply
 ) {
   const userId = (req.user as { id: number })?.id;
-
+  console.log(userId);
   try {
     const file = await req.file();
     if (!file) throw new Error("No file uploaded");
@@ -194,24 +235,48 @@ export async function bulkProductPreview(
       const row = rows[i];
       const rowNum = i + 1;
 
+      // Validate required fields
       if (!row.product_name)
         errors.push({ row: rowNum, error: "Product name required" });
       if (!row.variant_name)
         errors.push({ row: rowNum, error: "Variant name required" });
+      if (!row.uom_id && row.uom_id !== 0)
+        errors.push({ row: rowNum, error: "UOM ID required" });
+      if (!row.cost_price && row.cost_price !== 0)
+        errors.push({ row: rowNum, error: "Cost price required" });
+      if (!row.selling_price && row.selling_price !== 0)
+        errors.push({ row: rowNum, error: "Selling price required" });
 
+      // Parse numeric values
+      const uom_id = row.uom_id ? parseInt(row.uom_id) : null;
+      const cost_price = row.cost_price ? parseFloat(row.cost_price) : null;
+      const selling_price = row.selling_price
+        ? parseFloat(row.selling_price)
+        : null;
       const additional_price = parseFloat(row.additional_price) || 0;
       const weight = row.weight ? parseFloat(row.weight) : null;
 
+      // Parse images
       const images = row.images
-        ? (row.images as string)
-            .split(",")
-            .map((url: string) => ({ url: url.trim() }))
+        ? (row.images as string).split(",").map((url: string) => ({
+            url: url.trim(),
+            alt_text: `Image ${url.trim().substring(0, 10)}...`,
+            is_primary: false,
+          }))
         : [];
+
+      // Add first image as primary if exists
+      if (images.length > 0) {
+        images[0].is_primary = true;
+      }
 
       preview.push({
         row: rowNum,
         product_name: row.product_name,
         category: row.category || "",
+        uom_id,
+        cost_price,
+        selling_price,
         variant: {
           name: row.variant_name,
           additional_price,
@@ -230,44 +295,152 @@ export async function bulkProductPreview(
       valid: preview.length - errors.length,
     });
   } catch (err: any) {
-    reply.status(400).send({ success: false, message: err.message });
+    console.error("Preview error:", err);
+    reply.status(400).send({
+      success: false,
+      message: err.message || "Error processing file",
+    });
   }
 }
 
-// ------------------- BULK CONFIRM -------------------
+// productBulkController.ts - Update bulkProductConfirm function
+
+// productBulkController.ts - Updated bulkProductConfirm function
+
 export async function bulkProductConfirm(
   req: FastifyRequest,
   reply: FastifyReply
 ) {
-  const userId = (req.user as { id: number })?.id;
-  const products = (req.body as { products: any[] }).products;
+  try {
+    console.log("=== DEBUG: Starting bulkProductConfirm ===");
 
-  if (!products || !Array.isArray(products)) {
-    return reply
-      .status(400)
-      .send({ success: false, message: "Invalid products array" });
-  }
+    console.log(req.user, "USer");
 
-  const createdProducts: any[] = [];
-  const failedProducts: any[] = [];
+    const user = req.user as { id: number };
+    console.log("User ID from req.user:", user.id);
 
-  for (const prod of products) {
-    try {
-      const product = await createProductInternal(prod, userId);
-      createdProducts.push(product);
-    } catch (err: any) {
-      failedProducts.push({
-        product: prod.name || prod.product_name,
-        error: err.message,
+    if (!user.id) {
+      console.error("ERROR: user.id is null or undefined");
+      return reply.status(401).send({
+        success: false,
+        message: "Invalid user authentication",
       });
     }
-  }
 
-  reply.send({
-    success: true,
-    created_count: createdProducts.length,
-    failed_count: failedProducts.length,
-    createdProducts,
-    failedProducts,
-  });
+    const userId = user.id;
+    console.log("Processing for user ID:", userId);
+
+    const body = req.body as { products: any[] };
+    console.log("Request body received:", body);
+
+    if (!body) {
+      console.error("ERROR: No request body");
+      return reply.status(400).send({
+        success: false,
+        message: "Request body is required",
+      });
+    }
+
+    if (!body.products || !Array.isArray(body.products)) {
+      console.error("ERROR: Invalid products array", body.products);
+      return reply.status(400).send({
+        success: false,
+        message: "Invalid request body. Expected { products: [] }",
+      });
+    }
+
+    if (body.products.length === 0) {
+      console.error("ERROR: Empty products array");
+      return reply.status(400).send({
+        success: false,
+        message: "No products to create",
+      });
+    }
+
+    console.log(`Processing ${body.products.length} products`);
+
+    const createdProducts: any[] = [];
+    const failedProducts: { product: string; error: string; row?: number }[] =
+      [];
+
+    for (let i = 0; i < body.products.length; i++) {
+      const prod = body.products[i];
+      console.log(`Processing product ${i + 1}:`, prod);
+
+      try {
+        // Validate product data
+        if (!prod.name && !prod.product_name) {
+          throw new Error("Product name is required");
+        }
+
+        const productName = prod.name || prod.product_name;
+
+        if (prod.uom_id === undefined || prod.uom_id === null) {
+          throw new Error(`UOM ID is required for product "${productName}"`);
+        }
+
+        if (prod.cost_price === undefined || prod.cost_price === null) {
+          throw new Error(
+            `Cost price is required for product "${productName}"`
+          );
+        }
+
+        if (prod.selling_price === undefined || prod.selling_price === null) {
+          throw new Error(
+            `Selling price is required for product "${productName}"`
+          );
+        }
+
+        const productData: ProductData = {
+          name: productName,
+          uom_id: Number(prod.uom_id),
+          cost_price: Number(prod.cost_price),
+          selling_price: Number(prod.selling_price),
+          categories:
+            prod.categories ||
+            (prod.category ? [{ name: prod.category, is_primary: true }] : []),
+          variants:
+            prod.variants || (prod.variant ? [prod.variant] : undefined),
+          created_by: userId,
+          status: prod.status || "A",
+        };
+
+        console.log(`Creating product: ${productName}`);
+        const product = await createProductInternal(productData, userId);
+        console.log(`Created product:`, product);
+
+        createdProducts.push({
+          id: product.id,
+          code: product.code,
+          name: product.name,
+        });
+      } catch (err: any) {
+        console.error(`Error creating product ${i + 1}:`, err);
+        failedProducts.push({
+          product: prod.name || prod.product_name || `Product ${i + 1}`,
+          error: err.message,
+          row: i + 1,
+        });
+      }
+    }
+
+    console.log(
+      `Process completed: ${createdProducts.length} created, ${failedProducts.length} failed`
+    );
+
+    reply.send({
+      success: true,
+      created_count: createdProducts.length,
+      failed_count: failedProducts.length,
+      createdProducts,
+      failedProducts,
+    });
+  } catch (err: any) {
+    console.error("Unexpected error in bulkProductConfirm:", err);
+    reply.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
 }
