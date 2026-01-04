@@ -68,20 +68,45 @@ async function parseFile(file: any): Promise<any[]> {
 }
 
 // ------------------- HELPER: GET OR CREATE CATEGORY -------------------
+// ------------------- HELPER: GET OR CREATE CATEGORY -------------------
+// Alternative if findByField has issues:
 async function getOrCreateCategory(name: string, userId: number) {
-  const existingCat = await productCatModel.findByField("name", name);
-  if (existingCat) return existingCat;
+  if (!name || name.trim() === "") return null;
 
-  const code = await generatePrefixedId("category", "PCAT");
-  const newCat = await productCatModel.create({
-    code,
-    name,
-    created_by: userId,
-  });
+  const trimmedName = name.trim();
+  const client = await pool.connect();
 
-  return newCat;
+  try {
+    // Use raw query to find category
+    const findQuery = "SELECT * FROM category WHERE name = $1 LIMIT 1";
+    const findResult = await client.query(findQuery, [trimmedName]);
+
+    if (findResult.rows.length > 0) {
+      return findResult.rows[0];
+    }
+
+    // Create new category
+    const code = await generatePrefixedId("category", "PCAT");
+    const insertQuery = `
+      INSERT INTO category (code, name, created_by) 
+      VALUES ($1, $2, $3) 
+      RETURNING *
+    `;
+
+    const insertResult = await client.query(insertQuery, [
+      code,
+      trimmedName,
+      userId,
+    ]);
+
+    return insertResult.rows[0];
+  } catch (error) {
+    console.error(`Error getting/creating category "${trimmedName}":`, error);
+    return null;
+  } finally {
+    client.release();
+  }
 }
-
 // ------------------- VALIDATE PRODUCT DATA -------------------
 function validateProductData(data: Partial<ProductData>): string[] {
   const errors: string[] = [];
@@ -132,25 +157,30 @@ export async function createProductInternal(
     const product = await productModel.create(productInfo);
 
     // ------------------- CATEGORIES -------------------
-    const categoryIds: { name: string; is_primary?: boolean }[] = [];
+    if (productData.categories && productData.categories.length > 0) {
+      for (const cat of productData.categories) {
+        try {
+          const catRecord = await getOrCreateCategory(cat.name, userId);
 
-    for (const cat of productData.categories || []) {
-      const catRecord = await getOrCreateCategory(cat.name, userId);
+          if (!catRecord || !catRecord.id) {
+            console.warn(
+              `Skipping category "${cat.name}" - could not get/create`
+            );
+            continue;
+          }
 
-      await productCategoryModel.create({
-        product_id: product.id,
-        category_id: catRecord.id,
-        is_primary: cat.is_primary || false,
-        created_by: userId,
-      });
-
-      categoryIds.push({
-        name: cat.name,
-        is_primary: cat.is_primary || false,
-      });
+          await productCategoryModel.create({
+            product_id: product.id,
+            category_id: catRecord.id,
+            is_primary: cat.is_primary || false,
+            created_by: userId,
+          });
+        } catch (catError) {
+          console.error(`Error processing category "${cat.name}":`, catError);
+          // Continue with other categories
+        }
+      }
     }
-
-    productData.categories = categoryIds;
 
     // ------------------- VARIANTS -------------------
     const variantsToCreate =
@@ -207,7 +237,7 @@ export async function createProductInternal(
 
     await client.query("COMMIT");
     return product;
-  } catch (err) {
+  } catch (err: any) {
     await client.query("ROLLBACK");
     throw err;
   } finally {
@@ -216,12 +246,11 @@ export async function createProductInternal(
 }
 
 // ------------------- BULK PREVIEW -------------------
+// Add UOM validation and category ID resolution
 export async function bulkProductPreview(
   req: FastifyRequest,
   reply: FastifyReply
 ) {
-  const userId = (req.user as { id: number })?.id;
-  console.log(userId);
   try {
     const file = await req.file();
     if (!file) throw new Error("No file uploaded");
@@ -246,6 +275,19 @@ export async function bulkProductPreview(
         errors.push({ row: rowNum, error: "Cost price required" });
       if (!row.selling_price && row.selling_price !== 0)
         errors.push({ row: rowNum, error: "Selling price required" });
+
+      // Check if UOM exists
+      if (row.uom_id) {
+        const uomExists = await pool.query("SELECT id FROM uom WHERE id = $1", [
+          parseInt(row.uom_id),
+        ]);
+        if (uomExists.rows.length === 0) {
+          errors.push({
+            row: rowNum,
+            error: `UOM ID ${row.uom_id} does not exist`,
+          });
+        }
+      }
 
       // Parse numeric values
       const uom_id = row.uom_id ? parseInt(row.uom_id) : null;
@@ -311,27 +353,12 @@ export async function bulkProductConfirm(
   req: FastifyRequest,
   reply: FastifyReply
 ) {
+  const client = await pool.connect();
+
   try {
-    console.log("=== DEBUG: Starting bulkProductConfirm ===");
-
-    console.log(req.user, "USer");
-
-    const user = req.user as { id: number };
-    console.log("User ID from req.user:", user.id);
-
-    if (!user.id) {
-      console.error("ERROR: user.id is null or undefined");
-      return reply.status(401).send({
-        success: false,
-        message: "Invalid user authentication",
-      });
-    }
-
-    const userId = user.id;
-    console.log("Processing for user ID:", userId);
+    await client.query("BEGIN");
 
     const body = req.body as { products: any[] };
-    console.log("Request body received:", body);
 
     if (!body) {
       console.error("ERROR: No request body");
@@ -357,15 +384,22 @@ export async function bulkProductConfirm(
       });
     }
 
-    console.log(`Processing ${body.products.length} products`);
-
     const createdProducts: any[] = [];
     const failedProducts: { product: string; error: string; row?: number }[] =
       [];
 
+    // Get user ID from request
+    const userId = (req.user as { id: number } | null)?.id;
+
+    if (!userId) {
+      return reply.status(400).send({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
     for (let i = 0; i < body.products.length; i++) {
       const prod = body.products[i];
-      console.log(`Processing product ${i + 1}:`, prod);
 
       try {
         // Validate product data
@@ -377,6 +411,18 @@ export async function bulkProductConfirm(
 
         if (prod.uom_id === undefined || prod.uom_id === null) {
           throw new Error(`UOM ID is required for product "${productName}"`);
+        }
+
+        // Check if UOM exists
+        const uomExists = await client.query(
+          "SELECT id FROM uom WHERE id = $1",
+          [Number(prod.uom_id)]
+        );
+
+        if (uomExists.rows.length === 0) {
+          throw new Error(
+            `UOM ID ${prod.uom_id} does not exist for product "${productName}"`
+          );
         }
 
         if (prod.cost_price === undefined || prod.cost_price === null) {
@@ -391,23 +437,48 @@ export async function bulkProductConfirm(
           );
         }
 
+        // Resolve categories
+        const categories = [];
+        if (prod.categories && Array.isArray(prod.categories)) {
+          for (const cat of prod.categories) {
+            if (cat.name && cat.name.trim() !== "") {
+              const categoryRecord = await getOrCreateCategory(
+                cat.name,
+                userId
+              );
+              if (categoryRecord) {
+                categories.push({
+                  name: cat.name,
+                  is_primary: cat.is_primary || false,
+                });
+              }
+            }
+          }
+        } else if (prod.category && prod.category.trim() !== "") {
+          const categoryRecord = await getOrCreateCategory(
+            prod.category,
+            userId
+          );
+          if (categoryRecord) {
+            categories.push({
+              name: prod.category,
+              is_primary: true,
+            });
+          }
+        }
+
         const productData: ProductData = {
           name: productName,
           uom_id: Number(prod.uom_id),
           cost_price: Number(prod.cost_price),
           selling_price: Number(prod.selling_price),
-          categories:
-            prod.categories ||
-            (prod.category ? [{ name: prod.category, is_primary: true }] : []),
+          categories: categories,
           variants:
             prod.variants || (prod.variant ? [prod.variant] : undefined),
-          created_by: userId,
           status: prod.status || "A",
         };
 
-        console.log(`Creating product: ${productName}`);
         const product = await createProductInternal(productData, userId);
-        console.log(`Created product:`, product);
 
         createdProducts.push({
           id: product.id,
@@ -424,9 +495,7 @@ export async function bulkProductConfirm(
       }
     }
 
-    console.log(
-      `Process completed: ${createdProducts.length} created, ${failedProducts.length} failed`
-    );
+    await client.query("COMMIT");
 
     reply.send({
       success: true,
@@ -436,11 +505,14 @@ export async function bulkProductConfirm(
       failedProducts,
     });
   } catch (err: any) {
+    await client.query("ROLLBACK");
     console.error("Unexpected error in bulkProductConfirm:", err);
     reply.status(500).send({
       success: false,
       message: "Internal server error",
       error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
+  } finally {
+    client.release();
   }
 }

@@ -69,9 +69,9 @@ export default async function productRoutes(app: FastifyInstance) {
 
   app.post("/bulk-products", bulkCreateProducts);
 
-  app.post("/bulk/preview", bulkProductPreview);
+  app.post("/bulk/preview",{ preHandler: [app.authenticate] }, bulkProductPreview);
 
-  app.post("/bulk/confirm", bulkProductConfirm);
+  app.post("/bulk/confirm",{ preHandler: [app.authenticate] }, bulkProductConfirm);
 
   app.post("/get-all-products", getAllProducts);
   app.post("/get-pos-products", getProductsPOS);
