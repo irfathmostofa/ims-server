@@ -568,6 +568,10 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
         COALESCE(pv.code, p.code) AS code,
         p.name AS product_name,
         pv.name AS variant_name,
+        pv.sku,
+        pv.weight,
+        pv.weight_unit,
+        pv.is_replaceable,
         CASE 
           WHEN pv.name IS NOT NULL AND pv.name != '' 
           THEN p.name || ' (' || pv.name || ')'
@@ -610,8 +614,7 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
       ORDER BY p.name, pv.name NULLS FIRST
     `;
 
-    console.log("Query:", query);
-    console.log("Params:", params);
+  
 
     const { rows } = await pool.query(query, params);
 
