@@ -5,6 +5,7 @@ import {
   generatePrefixedId,
 } from "../../core/models/idGenerator";
 import {
+  customerItemsModel,
   orderDeliveryModel,
   orderItemOnlineModel,
   orderOnlineModel,
@@ -622,6 +623,95 @@ export async function getCustomerOrder(
     const { id } = req.params as { id: number };
     const order = await orderOnlineModel.findByField("customer_id", id);
     reply.send(successResponse(order));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function addCustomerItem(
+  req: FastifyRequest<{
+    Body: {
+      customer_id: number;
+      product_variant_id: number;
+      item_type: string;
+      quantity?: number;
+      unit_price?: number;
+      status?: string;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  try {
+    const {
+      customer_id,
+      product_variant_id,
+      item_type,
+      quantity,
+      unit_price,
+      status,
+    } = req.body;
+    const item = await customerItemsModel.create({
+      customer_id,
+      product_variant_id,
+      item_type,
+      quantity,
+      unit_price,
+      status: status || "A",
+    });
+    reply.send(successResponse(item, "Item added successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function getCustomerItems(
+  req: FastifyRequest<{ Body: { customerId: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const customerId = parseInt(req.body.customerId);
+    const items = await customerItemsModel.findByField(
+      "customer_id",
+      customerId
+    );
+    reply.send(successResponse(items));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function updateCustomerItem(
+  req: FastifyRequest<{
+    Body: {
+      id: number;
+      quantity?: number;
+      unit_price?: number;
+      status?: string;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  try {
+    const { id, quantity, unit_price, status } = req.body;
+    const item = await customerItemsModel.update(id, {
+      quantity,
+      unit_price,
+      status,
+    });
+    reply.send(successResponse(item, "Item updated successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function deleteCustomerItem(
+  req: FastifyRequest<{ Body: { id: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const itemId = parseInt(req.body.id);
+    await customerItemsModel.delete(itemId);
+    reply.send(successResponse(null, "Item deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }

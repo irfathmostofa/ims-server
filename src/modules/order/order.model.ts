@@ -59,3 +59,10 @@ export const orderPaymentOnlineModel = new CrudModel(
     "creation_date",
   ]
 );
+
+export const customerItemsModel = new CrudModel(
+  "customer_items",
+  ["customer_id", "product_variant_id", "item_type"],
+  [],
+  ["quantity", "unit_price", "status"]
+);

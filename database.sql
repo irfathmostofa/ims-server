@@ -511,6 +511,21 @@ CREATE TABLE order_payment_online (
     created_by INT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE customer_items (
+    id SERIAL PRIMARY KEY,
+    customer_id INT REFERENCES customer(id),
+    product_variant_id INT REFERENCES product_variant(id),
+    item_type VARCHAR(10) NOT NULL
+        CHECK (item_type IN ('CART', 'WISHLIST')),
+
+    quantity INTEGER DEFAULT 1 CHECK (quantity > 0),
+    unit_price NUMERIC(10,2),
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP,
+    UNIQUE (customer_id, product_variant_id, item_type)
+);
+
 CREATE TABLE product_review (
   id SERIAL PRIMARY KEY,
   product_id INT REFERENCES product(id),
