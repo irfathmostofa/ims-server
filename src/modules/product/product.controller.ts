@@ -290,41 +290,36 @@ export async function bulkCreateProducts(
 
 export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
   try {
-    const { page, limit, status, category_id, search } = req.body as {
-      page?: number;
-      limit?: number;
-      status?: string;
-      category_id?: number;
-      search?: string;
-    };
+    const { page, limit, status, price_min, price_max, category_id, search } =
+      req.body as {
+        page?: number;
+        limit?: number;
+        status?: string;
+        category_id?: number;
+        search?: string;
+        price_min?: number;
+        price_max?: number;
+      };
 
-    const pageNum = page || 1;
-    const limitNum = limit || 10;
+    // Validate price range if both are provided
+    if (
+      price_min !== undefined &&
+      price_max !== undefined &&
+      price_min > price_max
+    ) {
+      return reply.status(400).send({
+        success: false,
+        message: "price_min cannot be greater than price_max",
+      });
+    }
+
+    const pageNum = Math.max(1, page || 1);
+    const limitNum = Math.max(1, Math.min(limit || 10, 100)); // Limit to max 100 per page
     const offset = (pageNum - 1) * limitNum;
 
+    // Main query with CTE for better performance and filtering
     let query = `
-      SELECT 
-        p.id,
-        p.code,
-        p.name,
-        p.description,
-        p.cost_price,
-        p.selling_price,
-        p.regular_price,
-        p.status,
-        u.name AS uom_name,
-        pi.images,
-        cat.categories,
-        p.total_stock,
-        CASE 
-          WHEN p.created_at >= NOW() - INTERVAL '10 days' THEN 'New'
-          ELSE NULL
-        END AS badge,
-        r.rating,
-        r.review_count,
-        p.total_sales,
-        pv.primary_variant_id
-      FROM (
+      WITH product_aggregates AS (
         SELECT 
           p.id,
           p.code,
@@ -342,46 +337,97 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
         LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
         LEFT JOIN order_item_online oio ON pv.id = oio.product_variant_id
-        LEFT JOIN product_categories pc ON p.id = pc.product_id
         WHERE 1=1
     `;
 
     const params: any[] = [];
     let paramIndex = 1;
 
+    // Status filter
     if (status && status !== "") {
       query += ` AND p.status = $${paramIndex}`;
       params.push(status);
       paramIndex++;
     }
 
+    // Price filters (can be used independently)
+    if (price_min !== undefined) {
+      query += ` AND p.selling_price >= $${paramIndex}`;
+      params.push(price_min);
+      paramIndex++;
+    }
+
+    if (price_max !== undefined) {
+      query += ` AND p.selling_price <= $${paramIndex}`;
+      params.push(price_max);
+      paramIndex++;
+    }
+
+    // Apply category filter if needed
     if (category_id) {
-      query += ` AND pc.category_id = $${paramIndex}`;
+      query += ` AND EXISTS (
+        SELECT 1 FROM product_categories pc 
+        WHERE pc.product_id = p.id AND pc.category_id = $${paramIndex}
+      )`;
       params.push(category_id);
       paramIndex++;
     }
 
+    // Search filter
     if (search && search !== "") {
-      query += ` AND (p.name ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`;
+      query += ` AND (
+        p.name ILIKE $${paramIndex} 
+        OR p.description ILIKE $${paramIndex}
+        OR p.code ILIKE $${paramIndex}
+      )`;
       params.push(`%${search}%`);
       paramIndex++;
     }
 
     query += `
-        GROUP BY 
-          p.id, 
-          p.code, 
-          p.name, 
-          p.description, 
-          p.cost_price, 
-          p.selling_price, 
-          p.regular_price, 
-          p.status, 
-          p.uom_id, 
-          p.created_at
-      ) p
-      LEFT JOIN uom u ON p.uom_id = u.id
+        GROUP BY p.id
+      ),
+      filtered_products AS (
+        SELECT DISTINCT pa.*
+        FROM product_aggregates pa
+        WHERE 1=1
+    `;
 
+    // Apply category filter again if search was used (to maintain consistency)
+    if (category_id && search && search !== "") {
+      query += ` AND EXISTS (
+        SELECT 1 FROM product_categories pc 
+        WHERE pc.product_id = pa.id AND pc.category_id = $${paramIndex}
+      )`;
+      params.push(category_id);
+      paramIndex++;
+    }
+
+    query += `
+      )
+      SELECT 
+        fp.id,
+        fp.code,
+        fp.name,
+        fp.description,
+        fp.cost_price,
+        fp.selling_price,
+        fp.regular_price,
+        fp.status,
+        u.name AS uom_name,
+        pi.images,
+        cat.categories,
+        fp.total_stock,
+        CASE 
+          WHEN fp.created_at >= NOW() - INTERVAL '10 days' THEN 'New'
+          ELSE NULL
+        END AS badge,
+        r.rating,
+        r.review_count,
+        fp.total_sales,
+        pv.primary_variant_id
+      FROM filtered_products fp
+      LEFT JOIN uom u ON fp.uom_id = u.id
       LEFT JOIN (
         SELECT DISTINCT ON (product_id)
           product_id,
@@ -389,8 +435,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         FROM product_variant
         WHERE status = 'A'
         ORDER BY product_id, id ASC
-      ) pv ON p.id = pv.product_id
-
+      ) pv ON fp.id = pv.product_id
       LEFT JOIN (
         SELECT 
           pv.product_id,
@@ -407,8 +452,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         JOIN product_variant pv ON pi.product_variant_id = pv.id
         WHERE pi.status = 'A' AND pv.status = 'A'
         GROUP BY pv.product_id
-      ) pi ON p.id = pi.product_id
-
+      ) pi ON fp.id = pi.product_id
       LEFT JOIN (
         SELECT 
           pc.product_id,
@@ -426,8 +470,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         JOIN category c ON pc.category_id = c.id
         WHERE c.status = 'A'
         GROUP BY pc.product_id
-      ) cat ON p.id = cat.product_id
-
+      ) cat ON fp.id = cat.product_id
       LEFT JOIN (
         SELECT 
           product_id,
@@ -435,43 +478,62 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
           COUNT(DISTINCT id) AS review_count
         FROM product_review
         GROUP BY product_id
-      ) r ON p.id = r.product_id
-
-      ORDER BY p.id DESC
+      ) r ON fp.id = r.product_id
+      ORDER BY fp.id DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
 
     params.push(limitNum, offset);
 
-    // ✅ Count query for pagination
+    // Count query for pagination
     let countQuery = `
       SELECT COUNT(DISTINCT p.id) AS total
       FROM product p
-      LEFT JOIN product_categories pc ON p.id = pc.product_id
       WHERE 1=1
     `;
 
     const countParams: any[] = [];
     let countParamIndex = 1;
 
+    // Apply same filters to count query
     if (status && status !== "") {
       countQuery += ` AND p.status = $${countParamIndex}`;
       countParams.push(status);
       countParamIndex++;
     }
 
+    if (price_min !== undefined) {
+      countQuery += ` AND p.selling_price >= $${countParamIndex}`;
+      countParams.push(price_min);
+      countParamIndex++;
+    }
+
+    if (price_max !== undefined) {
+      countQuery += ` AND p.selling_price <= $${countParamIndex}`;
+      countParams.push(price_max);
+      countParamIndex++;
+    }
+
     if (category_id) {
-      countQuery += ` AND pc.category_id = $${countParamIndex}`;
+      countQuery += ` AND EXISTS (
+        SELECT 1 FROM product_categories pc 
+        WHERE pc.product_id = p.id AND pc.category_id = $${countParamIndex}
+      )`;
       countParams.push(category_id);
       countParamIndex++;
     }
 
     if (search && search !== "") {
-      countQuery += ` AND (p.name ILIKE $${countParamIndex} OR p.description ILIKE $${countParamIndex})`;
+      countQuery += ` AND (
+        p.name ILIKE $${countParamIndex} 
+        OR p.description ILIKE $${countParamIndex}
+        OR p.code ILIKE $${countParamIndex}
+      )`;
       countParams.push(`%${search}%`);
       countParamIndex++;
     }
 
+    // Execute both queries in parallel
     const [productsResult, countResult] = await Promise.all([
       pool.query(query, params),
       pool.query(countQuery, countParams),
@@ -498,7 +560,12 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
       )
     );
   } catch (err: any) {
-    reply.status(400).send({ success: false, message: err.message });
+    console.error("Error in getAllProducts:", err);
+    reply.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
   }
 }
 
