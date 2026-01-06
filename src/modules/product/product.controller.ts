@@ -614,8 +614,6 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
       ORDER BY p.name, pv.name NULLS FIRST
     `;
 
-  
-
     const { rows } = await pool.query(query, params);
 
     return reply.send({
@@ -1382,77 +1380,309 @@ export async function deleteProductBarcode(
 export async function searchProducts(req: FastifyRequest, reply: FastifyReply) {
   try {
     const {
-      search,
+      q: search,
       category_id,
       price_min,
       price_max,
-      status = "A",
+      availability = "all",
+      sort = "newest",
       page = 1,
-      limit = 10,
-    } = req.query as any;
+      limit = 20,
+    } = req.query as {
+      q?: string;
+      category_id?: string;
+      price_min?: string;
+      price_max?: string;
+      availability?: string;
+      sort?: string;
+      page?: string;
+      limit?: string;
+    };
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const values: any[] = [];
-    const conditions: string[] = [];
-    let paramCount = 0;
+    const pageNum = parseInt(page.toString()) || 1;
+    const limitNum = parseInt(limit.toString()) || 20;
+    const offset = (pageNum - 1) * limitNum;
 
-    // Build WHERE conditions
-    if (search) {
-      paramCount++;
-      conditions.push(
-        `(p.name ILIKE $${paramCount} OR p.code ILIKE $${paramCount} OR p.description ILIKE $${paramCount})`
-      );
-      values.push(`%${search}%`);
-    }
-
-    if (category_id) {
-      paramCount++;
-      conditions.push(`p.category_id = $${paramCount}`);
-      values.push(category_id);
-    }
-
-    if (price_min) {
-      paramCount++;
-      conditions.push(`p.selling_price >= $${paramCount}`);
-      values.push(price_min);
-    }
-
-    if (price_max) {
-      paramCount++;
-      conditions.push(`p.selling_price <= $${paramCount}`);
-      values.push(price_max);
-    }
-
-    if (status) {
-      paramCount++;
-      conditions.push(`p.status = $${paramCount}`);
-      values.push(status);
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-
-    const query = `
+    let query = `
       SELECT 
-        p.*,
-        pc.name as category_name,
-        u.name as uom_name,
-        pi.url as primary_image
-      FROM product p
-      LEFT JOIN product_category pc ON p.category_id = pc.id
-      LEFT JOIN uom u ON p.uom_id = u.id
-      LEFT JOIN product_image pi ON p.id = pi.product_id AND pi.is_primary = true
-      ${whereClause}
-      ORDER BY p.created_at DESC
-      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+        p.id,
+        p.code,
+        p.name,
+        p.description,
+        p.cost_price,
+        p.selling_price,
+        p.regular_price,
+        p.status,
+        u.name AS uom_name,
+        pi.images,
+        cat.categories,
+        p.total_stock,
+        CASE 
+          WHEN p.created_at >= NOW() - INTERVAL '10 days' THEN 'New'
+          ELSE NULL
+        END AS badge,
+        r.rating,
+        r.review_count,
+        p.total_sales,
+        pv.primary_variant_id
+      FROM (
+        SELECT 
+          p.id,
+          p.code,
+          p.name,
+          p.description,
+          p.cost_price,
+          p.selling_price,
+          p.regular_price,
+          p.status,
+          p.uom_id,
+          p.created_at,
+          COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock,
+          COALESCE(SUM(oio.subtotal), 0) AS total_sales
+        FROM product p
+        LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
+        LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
+        LEFT JOIN order_item_online oio ON pv.id = oio.product_variant_id
+        LEFT JOIN product_categories pc ON p.id = pc.product_id
+        WHERE 1=1
+        AND p.status = 'A'
     `;
 
-    values.push(parseInt(limit), offset);
+    const params: any[] = [];
+    let paramIndex = 1;
 
-    const { rows } = await pool.query(query, values);
+    // Handle category_id as comma-separated string
+    if (category_id && category_id.trim() !== "") {
+      const categoryIds = category_id
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => id !== "");
+      if (categoryIds.length > 0) {
+        query += ` AND pc.category_id = ANY($${paramIndex})`;
+        params.push(categoryIds);
+        paramIndex++;
+      }
+    }
 
-    reply.send(successResponse(rows, "Products searched successfully"));
+    if (search && search.trim() !== "") {
+      query += ` AND (p.name ILIKE $${paramIndex} OR p.code ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`;
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    if (price_min && !isNaN(parseFloat(price_min))) {
+      query += ` AND p.selling_price >= $${paramIndex}`;
+      params.push(parseFloat(price_min));
+      paramIndex++;
+    }
+
+    if (price_max && !isNaN(parseFloat(price_max))) {
+      query += ` AND p.selling_price <= $${paramIndex}`;
+      params.push(parseFloat(price_max));
+      paramIndex++;
+    }
+
+    query += `
+        GROUP BY 
+          p.id, 
+          p.code, 
+          p.name, 
+          p.description, 
+          p.cost_price, 
+          p.selling_price, 
+          p.regular_price, 
+          p.status, 
+          p.uom_id, 
+          p.created_at
+      ) p
+      LEFT JOIN uom u ON p.uom_id = u.id
+      LEFT JOIN (
+        SELECT DISTINCT ON (product_id)
+          product_id,
+          id AS primary_variant_id
+        FROM product_variant
+        WHERE status = 'A'
+        ORDER BY product_id, id ASC
+      ) pv ON p.id = pv.product_id
+      LEFT JOIN (
+        SELECT 
+          pv.product_id,
+          json_agg(
+            json_build_object(
+              'id', pi.id,
+              'url', pi.url,
+              'alt_text', pi.alt_text,
+              'is_primary', pi.is_primary,
+              'variant_id', pi.product_variant_id
+            ) ORDER BY pi.is_primary DESC, pi.id
+          ) AS images
+        FROM product_image pi
+        JOIN product_variant pv ON pi.product_variant_id = pv.id
+        WHERE pi.status = 'A' AND pv.status = 'A'
+        GROUP BY pv.product_id
+      ) pi ON p.id = pi.product_id
+      LEFT JOIN (
+        SELECT 
+          pc.product_id,
+          json_agg(
+            json_build_object(
+              'id', c.id,
+              'name', c.name,
+              'slug', c.slug,
+              'code', c.code,
+              'image', c.image,
+              'is_primary', pc.is_primary
+            ) ORDER BY pc.is_primary DESC, c.id
+          ) AS categories
+        FROM product_categories pc
+        JOIN category c ON pc.category_id = c.id
+        WHERE c.status = 'A'
+        GROUP BY pc.product_id
+      ) cat ON p.id = cat.product_id
+      LEFT JOIN (
+        SELECT 
+          product_id,
+          ROUND(COALESCE(AVG(rating), 0)::NUMERIC, 1) AS rating,
+          COUNT(DISTINCT id) AS review_count
+        FROM product_review
+        GROUP BY product_id
+      ) r ON p.id = r.product_id
+      WHERE 1=1
+    `;
+
+    // Apply availability filter
+    if (availability === "in-stock") {
+      query += ` AND p.total_stock > 0`;
+    } else if (availability === "out-of-stock") {
+      query += ` AND p.total_stock <= 0`;
+    }
+
+    // Apply sorting
+    switch (sort) {
+      case "price-low":
+        query += ` ORDER BY p.selling_price ASC`;
+        break;
+      case "price-high":
+        query += ` ORDER BY p.selling_price DESC`;
+        break;
+      case "popular":
+        query += ` ORDER BY p.total_sales DESC, p.selling_price ASC`;
+        break;
+      case "rating":
+        query += ` ORDER BY COALESCE(r.rating, 0) DESC, p.selling_price ASC`;
+        break;
+      case "newest":
+      default:
+        query += ` ORDER BY p.created_at DESC`;
+        break;
+    }
+
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limitNum, offset);
+
+    // Count query for total items
+    let countQuery = `
+      SELECT COUNT(DISTINCT p.id) as total
+      FROM product p
+      LEFT JOIN product_categories pc ON p.id = pc.product_id
+      LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
+      LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
+      WHERE p.status = 'A'
+    `;
+
+    const countParams: any[] = [];
+    let countParamIndex = 1;
+
+    if (category_id && category_id.trim() !== "") {
+      const categoryIds = category_id
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => id !== "");
+      if (categoryIds.length > 0) {
+        countQuery += ` AND pc.category_id = ANY($${countParamIndex})`;
+        countParams.push(categoryIds);
+        countParamIndex++;
+      }
+    }
+
+    if (search && search.trim() !== "") {
+      countQuery += ` AND (p.name ILIKE $${countParamIndex} OR p.code ILIKE $${countParamIndex} OR p.description ILIKE $${countParamIndex})`;
+      countParams.push(`%${search.trim()}%`);
+      countParamIndex++;
+    }
+
+    if (price_min && !isNaN(parseFloat(price_min))) {
+      countQuery += ` AND p.selling_price >= $${countParamIndex}`;
+      countParams.push(parseFloat(price_min));
+      countParamIndex++;
+    }
+
+    if (price_max && !isNaN(parseFloat(price_max))) {
+      countQuery += ` AND p.selling_price <= $${countParamIndex}`;
+      countParams.push(parseFloat(price_max));
+      countParamIndex++;
+    }
+
+    // Add availability filter to count query
+    let countSubQuery = countQuery;
+    if (availability === "in-stock") {
+      countSubQuery = `
+        SELECT COUNT(*) as total FROM (
+          ${countQuery}
+          GROUP BY p.id
+          HAVING COALESCE(SUM(inv.quantity), 0) > 0
+        ) as filtered_products
+      `;
+    } else if (availability === "out-of-stock") {
+      countSubQuery = `
+        SELECT COUNT(*) as total FROM (
+          ${countQuery}
+          GROUP BY p.id
+          HAVING COALESCE(SUM(inv.quantity), 0) <= 0
+        ) as filtered_products
+      `;
+    }
+
+    const [productsResult, countResult] = await Promise.all([
+      pool.query(query, params),
+      pool.query(countSubQuery, countParams),
+    ]);
+
+    const products = productsResult.rows;
+    const total = parseInt(countResult.rows[0]?.total || "0");
+    const hasMore = offset + products.length < total;
+    const totalPages = Math.ceil(total / limitNum);
+
+    // Add discount percentage to each product
+    const productsWithDiscount = products.map((product: any) => ({
+      ...product,
+      discount_percentage:
+        product.regular_price > 0
+          ? Math.round(
+              ((product.regular_price - product.selling_price) * 100) /
+                product.regular_price
+            )
+          : 0,
+    }));
+
+    reply.send(
+      successResponse(
+        {
+          products: productsWithDiscount,
+          pagination: {
+            currentPage: pageNum,
+            limit: limitNum,
+            total,
+            totalPages,
+            hasMore,
+            nextPage: hasMore ? pageNum + 1 : null,
+          },
+        },
+        "Products retrieved successfully"
+      )
+    );
   } catch (err: any) {
+    console.error("Search products error:", err);
     reply.status(400).send({ success: false, message: err.message });
   }
 }
