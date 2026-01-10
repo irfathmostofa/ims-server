@@ -13,11 +13,11 @@ import { inventoryRoutes } from "../modules/inventory/inventory.routes";
 import salesRoutes from "../modules/sales/sale.routes";
 import poRoutes from "../modules/Purchase-Order/po.routes";
 import fastifyOauth2 from "@fastify/oauth2";
-import templateRoutes from "../modules/template/template.routes";
 import orderRoutes from "../modules/order/order.routes";
 import { CouponRoutes } from "../modules/coupon/coupon.routes";
 import { accountRoutes } from "../modules/accounts/accounts.routes";
 import paymentRoute from "../modules/payment/payment.routes";
+import { themeRoutes } from "../modules/template/theme.routes";
 
 dotenv.config();
 
@@ -54,7 +54,7 @@ app.register(inventoryRoutes, { prefix: "/inventory" });
 app.register(salesRoutes, { prefix: "/sales" });
 app.register(poRoutes, { prefix: "/po" });
 app.register(accountRoutes, { prefix: "/accounts" });
-app.register(templateRoutes, { prefix: "/template" });
+app.register(themeRoutes, { prefix: "/theme" });
 app.register(orderRoutes, { prefix: "/order" });
 app.register(CouponRoutes, { prefix: "/coupon" });
 app.register(paymentRoute, { prefix: "/payments" });

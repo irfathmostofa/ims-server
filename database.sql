@@ -541,33 +541,98 @@ CREATE TABLE product_review_image (
   review_id INT REFERENCES product_review(id),
   image_url TEXT
 );
--- TEMPLATE
-CREATE TABLE template (
-    id SERIAL PRIMARY KEY,
-    template_name VARCHAR(100) NOT NULL,
-    description TEXT,
-    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A', 'I')),
-    created_by INT REFERENCES users(id),
-    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_update INT REFERENCES users(id),
-    last_update_date TIMESTAMP
+-- 1. THEMES TABLE
+CREATE TABLE themes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  slug VARCHAR(100) UNIQUE NOT NULL,
+  description TEXT,
+  is_active BOOLEAN DEFAULT FALSE,
+  is_default BOOLEAN DEFAULT FALSE,
+  status VARCHAR(20) DEFAULT 'draft', -- draft, published, archived
+  global_css JSONB DEFAULT '{}',
+  global_settings JSONB DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  published_at TIMESTAMP WITH TIME ZONE
 );
 
--- TEMPLATE_SECTION
-CREATE TABLE template_section (
-    id SERIAL PRIMARY KEY,
-    template_id INT REFERENCES template(id) ON DELETE CASCADE,
-    section_name VARCHAR(100) NOT NULL,
-    section_key VARCHAR(50) NOT NULL,
-    section_type VARCHAR(50),
-    config_data JSONB,
-    sort_order INT DEFAULT 0,
-    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A', 'I')),
-    created_by INT REFERENCES users(id),
-    creation_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_update INT REFERENCES users(id),
-    last_update_date TIMESTAMP
+-- 2. COMPONENT TYPES (Available section types)
+CREATE TABLE component_types (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(50) UNIQUE NOT NULL, -- hero, product-grid, banner, etc.
+  display_name VARCHAR(100) NOT NULL,
+  category VARCHAR(50), -- header, content, footer
+  icon VARCHAR(50),
+  max_instances INTEGER,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- 3. COMPONENT VARIANTS (Different designs for each type)
+CREATE TABLE component_variants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  component_type_id UUID REFERENCES component_types(id),
+  variant_name VARCHAR(50) NOT NULL, -- v1, v2, v3
+  display_name VARCHAR(100) NOT NULL,
+  description TEXT,
+  thumbnail_url VARCHAR(500),
+  component_path VARCHAR(500), -- Path to React component
+  config_schema JSONB NOT NULL, -- JSON Schema for config
+  default_config JSONB DEFAULT '{}',
+  css_template JSONB DEFAULT '{}',
+  version VARCHAR(20) DEFAULT '1.0.0',
+  is_active BOOLEAN DEFAULT TRUE,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(component_type_id, variant_name)
+);
+
+-- 4. THEME SECTIONS (Actual sections in a theme)
+CREATE TABLE theme_sections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  theme_id UUID REFERENCES themes(id) ON DELETE CASCADE,
+  component_variant_id UUID REFERENCES component_variants(id),
+  
+  -- Section metadata
+  name VARCHAR(255) NOT NULL,
+  section_key VARCHAR(100) NOT NULL, -- Unique key within theme
+  order_index INTEGER NOT NULL DEFAULT 0,
+  is_visible BOOLEAN DEFAULT TRUE,
+  
+  -- Configuration
+  config_data JSONB NOT NULL DEFAULT '{}',
+  css_overrides JSONB DEFAULT '{}',
+  content JSONB DEFAULT '{}',
+  
+  -- Advanced settings
+  responsive_config JSONB DEFAULT '{}',
+  animation_settings JSONB DEFAULT '{}',
+  seo_settings JSONB DEFAULT '{}',
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  UNIQUE(theme_id, section_key)
+);
+
+-- 5. ACTIVE THEME CACHE (For performance)
+CREATE TABLE active_theme_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  theme_id UUID REFERENCES themes(id),
+  theme_data JSONB NOT NULL,
+  hash VARCHAR(64) NOT NULL,
+  generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  expires_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Indexes for performance
+CREATE INDEX idx_themes_is_active ON themes(is_active);
+CREATE INDEX idx_themes_slug ON themes(slug);
+CREATE INDEX idx_theme_sections_theme ON theme_sections(theme_id);
+CREATE INDEX idx_theme_sections_order ON theme_sections(theme_id, order_index);
+CREATE INDEX idx_component_variants_active ON component_variants(is_active);
+CREATE INDEX idx_active_theme_cache_expires ON active_theme_cache(expires_at);
 CREATE TABLE coupons (
     id SERIAL PRIMARY KEY,
     code VARCHAR(50) UNIQUE NOT NULL,
