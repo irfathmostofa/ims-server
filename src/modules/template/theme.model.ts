@@ -28,7 +28,7 @@ export const componentTypeModel = new CrudModel(
 export const componentVariantModel = new CrudModel(
   "component_variants",
   ["component_type_id", "variant_name"],
-  ["component_type_id", "variant_name"],
+  ["component_type_id"],
   [
     "display_name",
     "description",
@@ -47,7 +47,7 @@ export const componentVariantModel = new CrudModel(
 export const themeSectionModel = new CrudModel(
   "theme_sections",
   ["theme_id", "section_key"],
-  ["theme_id", "section_key"],
+  [],
   [
     "component_variant_id",
     "name",

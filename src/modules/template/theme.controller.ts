@@ -185,6 +185,7 @@ export async function deleteThemeSection(
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+
 export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
   try {
     /* 1️⃣ Active theme */
