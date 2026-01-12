@@ -599,7 +599,6 @@ CREATE TABLE theme_sections (
   section_key VARCHAR(100) NOT NULL, -- Unique key within theme
   order_index INTEGER NOT NULL DEFAULT 0,
   is_visible BOOLEAN DEFAULT TRUE,
-  
   -- Configuration
   config_data JSONB NOT NULL DEFAULT '{}',
   css_overrides JSONB DEFAULT '{}',
