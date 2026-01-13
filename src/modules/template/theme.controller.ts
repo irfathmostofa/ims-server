@@ -189,169 +189,235 @@ export async function deleteThemeSection(
 export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
   try {
     /* 1️⃣ Get the active theme */
-    const {
-      rows: [theme],
-    } = await pool.query(`
+    const { rows } = await pool.query(`
       SELECT *
       FROM themes
       WHERE is_active = true
-        AND is_default = true
         AND status = 'published'
+      ORDER BY is_default DESC, created_at DESC
       LIMIT 1
     `);
 
-    if (!theme) throw new Error("No active theme found");
-
-    /* 2️⃣ Check cache first */
-    const {
-      rows: [cache],
-    } = await pool.query(
-      `
-      SELECT theme_data
-      FROM active_theme_cache
-      WHERE theme_id = $1
-        AND (expires_at IS NULL OR expires_at > NOW())
-      LIMIT 1
-      `,
-      [theme.id]
-    );
-
-    if (cache) {
-      return reply.send(
-        successResponse(cache.theme_data, "Active theme (cached)")
-      );
+    if (rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "No active published theme found",
+      });
     }
 
-    /* 3️⃣ Compile theme sections grouped by position */
-    const {
-      rows: [compiledTheme],
-    } = await pool.query(
-      `
-      SELECT 
-        t.*,
-        json_build_object(
-          'header', COALESCE(
-            (
-              SELECT json_agg(
-                json_build_object(
-                  'id', ts.id,
-                  'name', ts.name,
-                  'section_key', ts.section_key,
-                  'order_index', ts.order_index,
-                  'is_visible', ts.is_visible,
-                  'config_data', ts.config_data,
-                  'content', ts.content,
-                  'css_overrides', ts.css_overrides,
-                  'responsive_config', ts.responsive_config,
-                  'animation_settings', ts.animation_settings,
-                  'seo_settings', ts.seo_settings,
-                  'component', json_build_object(
-                    'variant_id', cv.id,
-                    'variant_name', cv.variant_name,
-                    'component_path', cv.component_path,
-                    'default_config', cv.default_config,
-                    'css_template', cv.css_template
-                  )
-                )
-                ORDER BY ts.order_index
-              )
-              FROM theme_sections ts
-              LEFT JOIN component_variants cv ON cv.id = ts.component_variant_id
-              WHERE ts.theme_id = t.id
-                AND ts.is_visible = true
-                AND ts.position = 'HEADER'
-            ),
-            '[]'::json
-          ),
-          'content', COALESCE(
-            (
-              SELECT json_agg(
-                json_build_object(
-                  'id', ts.id,
-                  'name', ts.name,
-                  'section_key', ts.section_key,
-                  'order_index', ts.order_index,
-                  'is_visible', ts.is_visible,
-                  'config_data', ts.config_data,
-                  'content', ts.content,
-                  'css_overrides', ts.css_overrides,
-                  'responsive_config', ts.responsive_config,
-                  'animation_settings', ts.animation_settings,
-                  'seo_settings', ts.seo_settings,
-                  'component', json_build_object(
-                    'variant_id', cv.id,
-                    'variant_name', cv.variant_name,
-                    'component_path', cv.component_path,
-                    'default_config', cv.default_config,
-                    'css_template', cv.css_template
-                  )
-                )
-                ORDER BY ts.order_index
-              )
-              FROM theme_sections ts
-              LEFT JOIN component_variants cv ON cv.id = ts.component_variant_id
-              WHERE ts.theme_id = t.id
-                AND ts.is_visible = true
-                AND ts.position = 'CONTENT'
-            ),
-            '[]'::json
-          ),
-          'footer', COALESCE(
-            (
-              SELECT json_agg(
-                json_build_object(
-                  'id', ts.id,
-                  'name', ts.name,
-                  'section_key', ts.section_key,
-                  'order_index', ts.order_index,
-                  'is_visible', ts.is_visible,
-                  'config_data', ts.config_data,
-                  'content', ts.content,
-                  'css_overrides', ts.css_overrides,
-                  'responsive_config', ts.responsive_config,
-                  'animation_settings', ts.animation_settings,
-                  'seo_settings', ts.seo_settings,
-                  'component', json_build_object(
-                    'variant_id', cv.id,
-                    'variant_name', cv.variant_name,
-                    'component_path', cv.component_path,
-                    'default_config', cv.default_config,
-                    'css_template', cv.css_template
-                  )
-                )
-                ORDER BY ts.order_index
-              )
-              FROM theme_sections ts
-              LEFT JOIN component_variants cv ON cv.id = ts.component_variant_id
-              WHERE ts.theme_id = t.id
-                AND ts.is_visible = true
-                AND ts.position = 'FOOTER'
-            ),
-            '[]'::json
-          )
-        ) as sections
-      FROM themes t
-      WHERE t.id = $1
-      `,
+    const theme = rows[0];
+
+    /* 2️⃣ Check cache first */
+    const { rows: cacheRows } = await pool.query(
+      `SELECT theme_data FROM active_theme_cache 
+       WHERE theme_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
+       ORDER BY generated_at DESC LIMIT 1`,
       [theme.id]
     );
 
-    // No need to transform since the query already returns the correct structure
+    if (cacheRows.length > 0 && cacheRows[0].theme_data) {
+      return reply.send({
+        success: true,
+        message: "Active theme (cached)",
+        data: cacheRows[0].theme_data,
+      });
+    }
+
+    /* 3️⃣ Compile theme sections using subqueries (more efficient) */
+    const { rows: compiledRows } = await pool.query(
+      `SELECT 
+        t.*,
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', ts.id,
+              'name', ts.name,
+              'content', ts.content,
+              'component', json_build_object(
+                'variant_id', cv.id,
+                'variant_name', cv.variant_name,
+                'component_path', cv.component_path,
+                'default_config', cv.default_config,
+                'css_template', cv.css_template
+              ),
+              'is_visible', ts.is_visible,
+              'config_data', ts.config_data,
+              'order_index', ts.order_index,
+              'section_key', ts.section_key,
+              'seo_settings', ts.seo_settings,
+              'css_overrides', ts.css_overrides,
+              'responsive_config', ts.responsive_config,
+              'animation_settings', ts.animation_settings
+            ) ORDER BY ts.order_index ASC
+          )
+          FROM theme_sections ts
+          LEFT JOIN component_variants cv ON cv.id = ts.component_variant_id
+          WHERE ts.theme_id = t.id 
+            AND ts.is_visible = true 
+            AND ts.position = 'HEADER'
+        ) as header,
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', ts.id,
+              'name', ts.name,
+              'content', ts.content,
+              'component', json_build_object(
+                'variant_id', cv.id,
+                'variant_name', cv.variant_name,
+                'component_path', cv.component_path,
+                'default_config', cv.default_config,
+                'css_template', cv.css_template
+              ),
+              'is_visible', ts.is_visible,
+              'config_data', ts.config_data,
+              'order_index', ts.order_index,
+              'section_key', ts.section_key,
+              'seo_settings', ts.seo_settings,
+              'css_overrides', ts.css_overrides,
+              'responsive_config', ts.responsive_config,
+              'animation_settings', ts.animation_settings
+            ) ORDER BY ts.order_index ASC
+          )
+          FROM theme_sections ts
+          LEFT JOIN component_variants cv ON cv.id = ts.component_variant_id
+          WHERE ts.theme_id = t.id 
+            AND ts.is_visible = true 
+            AND ts.position = 'HERO'
+        ) as hero,
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', ts.id,
+              'name', ts.name,
+              'content', ts.content,
+              'component', json_build_object(
+                'variant_id', cv.id,
+                'variant_name', cv.variant_name,
+                'component_path', cv.component_path,
+                'default_config', cv.default_config,
+                'css_template', cv.css_template
+              ),
+              'is_visible', ts.is_visible,
+              'config_data', ts.config_data,
+              'order_index', ts.order_index,
+              'section_key', ts.section_key,
+              'seo_settings', ts.seo_settings,
+              'css_overrides', ts.css_overrides,
+              'responsive_config', ts.responsive_config,
+              'animation_settings', ts.animation_settings
+            ) ORDER BY ts.order_index ASC
+          )
+          FROM theme_sections ts
+          LEFT JOIN component_variants cv ON cv.id = ts.component_variant_id
+          WHERE ts.theme_id = t.id 
+            AND ts.is_visible = true 
+            AND ts.position = 'CONTENT'
+        ) as content,
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', ts.id,
+              'name', ts.name,
+              'content', ts.content,
+              'component', json_build_object(
+                'variant_id', cv.id,
+                'variant_name', cv.variant_name,
+                'component_path', cv.component_path,
+                'default_config', cv.default_config,
+                'css_template', cv.css_template
+              ),
+              'is_visible', ts.is_visible,
+              'config_data', ts.config_data,
+              'order_index', ts.order_index,
+              'section_key', ts.section_key,
+              'seo_settings', ts.seo_settings,
+              'css_overrides', ts.css_overrides,
+              'responsive_config', ts.responsive_config,
+              'animation_settings', ts.animation_settings
+            ) ORDER BY ts.order_index ASC
+          )
+          FROM theme_sections ts
+          LEFT JOIN component_variants cv ON cv.id = ts.component_variant_id
+          WHERE ts.theme_id = t.id 
+            AND ts.is_visible = true 
+            AND ts.position = 'FOOTER'
+        ) as footer
+      FROM themes t
+      WHERE t.id = $1`,
+      [theme.id]
+    );
+
+    if (compiledRows.length === 0) {
+      return reply.status(500).send({
+        success: false,
+        message: "Failed to compile theme sections",
+      });
+    }
+
+    const compiledTheme = compiledRows[0];
+
+    /* 4️⃣ Create the final theme structure */
+    // Combine hero and content sections into single content array
+    const heroSections = compiledTheme.hero || [];
+    const contentSections = compiledTheme.content || [];
+
+    // Merge hero sections into content array, maintaining order
+    const allContentSections = [...heroSections, ...contentSections].sort(
+      (a, b) => (a.order_index || 0) - (b.order_index || 0)
+    );
+
     const finalTheme = {
-      ...compiledTheme,
-      // The 'sections' field is already correctly structured from the SQL query
+      id: compiledTheme.id,
+      name: compiledTheme.name,
+      slug: compiledTheme.slug,
+      status: compiledTheme.status,
+      sections: {
+        footer: compiledTheme.footer || [],
+        header: compiledTheme.header || [],
+        content: allContentSections,
+      },
+      is_active: compiledTheme.is_active,
+      created_at: compiledTheme.created_at,
+      global_css: compiledTheme.global_css || {},
+      is_default: compiledTheme.is_default,
+      updated_at: compiledTheme.updated_at,
+      description: compiledTheme.description,
+      published_at: compiledTheme.published_at,
+      global_settings: compiledTheme.global_settings || {},
     };
 
-    /* 4️⃣ Save to cache */
-    await activeThemeCacheModel.create({
-      theme_id: theme.id,
-      theme_data: finalTheme,
-      hash: `${theme.id}-${Date.now()}`,
-    });
+    /* 5️⃣ Save to cache - FIXED: Use upsert pattern */
+    const crypto = require("crypto");
+    const hash = crypto
+      .createHash("md5")
+      .update(JSON.stringify(finalTheme))
+      .digest("hex");
 
-    /* 5️⃣ Return compiled theme */
-    reply.send(successResponse(finalTheme, "Active theme loaded successfully"));
+    // First delete existing cache for this theme
+    await pool.query(`DELETE FROM active_theme_cache WHERE theme_id = $1`, [
+      theme.id,
+    ]);
+
+    // Then insert new cache
+    await pool.query(
+      `INSERT INTO active_theme_cache (theme_id, theme_data, hash, expires_at)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
+      [theme.id, finalTheme, hash]
+    );
+
+    /* 6️⃣ Return compiled theme */
+    return reply.send({
+      success: true,
+      message: "Active theme loaded successfully",
+      data: finalTheme,
+    });
   } catch (err: any) {
-    reply.status(500).send({ success: false, message: err.message });
+    console.error("Error in getActiveTheme:", err);
+    return reply.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
   }
 }

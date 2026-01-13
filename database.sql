@@ -603,7 +603,7 @@ CREATE TABLE theme_sections (
   config_data JSONB NOT NULL DEFAULT '{}',
   css_overrides JSONB DEFAULT '{}',
   content JSONB DEFAULT '{}',
-  
+  position VARCHAR(20) CHECK (position IN ('HEADER','HERO','CONTENT','FOOTER')) DEFAULT 'CONTENT',
   -- Advanced settings
   responsive_config JSONB DEFAULT '{}',
   animation_settings JSONB DEFAULT '{}',
