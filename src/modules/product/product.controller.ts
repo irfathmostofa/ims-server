@@ -3,6 +3,7 @@ import { successResponse } from "../../core/utils/response";
 import {
   generatePrefixedId,
   generateRandomBarcode,
+  slugify,
 } from "../../core/models/idGenerator";
 import {
   productBarcodeModel,
@@ -15,17 +16,7 @@ import {
   UomModel,
 } from "./product.model";
 import pool from "../../config/db";
-function slugify(text: string) {
-  return text
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-") // replace spaces with hyphens
-    .replace(/[^\w\-]+/g, "") // remove all non-word chars
-    .replace(/\-\-+/g, "-") // replace multiple hyphens
-    .replace(/^-+/, "") // trim hyphens from start
-    .replace(/-+$/, ""); // trim hyphens from end
-}
+
 // ========== Product Category ==========
 export async function createProductCat(
   req: FastifyRequest,
@@ -177,6 +168,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
 
     // Create product
     productData.code = await generatePrefixedId("product", "PROD");
+    productData.slug = slugify(productData.name);
     productData.created_by = userId;
     if (!productData.status) productData.status = "A";
 
@@ -271,6 +263,7 @@ export async function bulkCreateProducts(
 
     for (const p of products) {
       p.code = await generatePrefixedId("product", "PROD");
+      p.slug = slugify(p.name);
       // if (req.user?.id) p.created_by = req.user.id;
       p.created_by = (req.user as { id: number }).id;
 
@@ -844,7 +837,281 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
     });
   }
 }
+export async function getProductBySlug(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { slug } = req.params as { slug: string };
 
+    const query = `
+      SELECT 
+        p.id,
+        p.code,
+        p.name,
+        p.description,
+        p.cost_price,
+        p.selling_price,
+        p.regular_price,
+        p.status,
+        u.id AS uom_id,
+        u.name AS uom_name,
+        u.symbol AS uom_symbol,
+
+        -- Categories
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', c.id,
+              'name', c.name,
+              'code', c.code,
+              'is_primary', pc.is_primary
+            ) ORDER BY pc.is_primary DESC
+          )
+          FROM product_categories pc
+          JOIN category c ON pc.category_id = c.id
+          WHERE pc.product_id = p.id AND c.status = 'A'
+        ), '[]') AS categories,
+
+        -- Variants with barcodes, images, and stock
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', v.id,
+              'code', v.code,
+              'name', v.name,
+              'additional_price', v.additional_price,
+              'status', v.status,
+              'barcodes', (
+                SELECT COALESCE(JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                    'id', b.id,
+                    'barcode', b.barcode,
+                    'type', b.type,
+                    'is_primary', b.is_primary
+                  ) ORDER BY b.is_primary DESC
+                ), '[]')
+                FROM product_barcode b
+                WHERE b.product_variant_id = v.id AND b.status = 'A'
+              ),
+              'images', (
+                SELECT COALESCE(JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                    'id', i.id,
+                    'code', i.code,
+                    'url', i.url,
+                    'alt_text', i.alt_text,
+                    'is_primary', i.is_primary
+                  ) ORDER BY i.is_primary DESC, i.id
+                ), '[]')
+                FROM product_image i
+                WHERE i.product_variant_id = v.id AND i.status = 'A'
+              ),
+              'stock', (
+                SELECT COALESCE(SUM(s.quantity), 0)
+                FROM inventory_stock s
+                WHERE s.product_variant_id = v.id
+              )
+            ) ORDER BY v.id
+          )
+          FROM product_variant v
+          WHERE v.product_id = p.id AND v.status = 'A'
+        ), '[]') AS variants,
+
+        -- Reviews
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', r.id,
+              'customer_name', c.full_name,
+              'rating', r.rating,
+              'title', r.title,
+              'comment', r.comment,
+              'helpful', r.helpful_count,
+              'created_at', r.created_at
+            ) ORDER BY r.created_at DESC
+          )
+          FROM product_review r
+          JOIN customer c ON r.customer_id = c.id
+          WHERE r.product_id = p.id
+        ), '[]') AS reviews,
+
+        -- Review summary
+        COALESCE((
+          SELECT JSON_BUILD_OBJECT(
+            'average_rating', ROUND(AVG(r.rating)::numeric, 1),
+            'total_reviews', COUNT(*)
+          )
+          FROM product_review r
+          WHERE r.product_id = p.id
+        ), JSON_BUILD_OBJECT('average_rating', 0, 'total_reviews', 0)) AS review_summary,
+
+        -- Total stock across all variants
+        COALESCE((
+          SELECT SUM(s.quantity)
+          FROM inventory_stock s
+          JOIN product_variant v ON s.product_variant_id = v.id
+          WHERE v.product_id = p.id AND v.status = 'A'
+        ), 0) AS total_stock
+
+      FROM product p
+      LEFT JOIN uom u ON u.id = p.uom_id
+      WHERE p.slug = $1;
+    `;
+
+    const { rows } = await pool.query(query, [slug]);
+
+    if (rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    return reply.send({
+      success: true,
+      message: "Product retrieved successfully",
+      data: rows[0],
+    });
+  } catch (err: any) {
+    console.error(err);
+    return reply.status(500).send({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+export async function getProductsByCategorySlug(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const { slug } = req.params as { slug: string };
+
+    // First, get the category ID from the slug
+    const categoryQuery = `
+      SELECT id FROM category 
+      WHERE slug = $1 AND status = 'A';
+    `;
+
+    const categoryResult = await pool.query(categoryQuery, [slug]);
+
+    if (categoryResult.rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    const categoryId = categoryResult.rows[0].id;
+
+    // Then get all products in this category (including subcategories if needed)
+    const query = `
+      SELECT 
+        p.id,
+        p.code,
+        p.name,
+        p.description,
+        p.slug,
+        p.cost_price,
+        p.selling_price,
+        p.regular_price,
+        p.status,
+        p.created_at,
+        p.updated_at,
+        u.id AS uom_id,
+        u.name AS uom_name,
+        u.symbol AS uom_symbol,
+
+        -- Get primary image from first variant
+        (
+          SELECT i.url
+          FROM product_image i
+          JOIN product_variant v ON i.product_variant_id = v.id
+          WHERE v.product_id = p.id 
+            AND i.status = 'A' 
+            AND i.is_primary = TRUE
+          LIMIT 1
+        ) AS primary_image,
+
+        -- Categories for each product
+        COALESCE((
+          SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', c.id,
+              'name', c.name,
+              'code', c.code,
+              'slug', c.slug,
+              'is_primary', pc.is_primary
+            ) ORDER BY pc.is_primary DESC
+          )
+          FROM product_categories pc
+          JOIN category c ON pc.category_id = c.id
+          WHERE pc.product_id = p.id AND c.status = 'A'
+        ), '[]') AS categories,
+
+        -- Get minimum selling price from variants
+        (
+          SELECT MIN(v.additional_price + p.selling_price)
+          FROM product_variant v
+          WHERE v.product_id = p.id AND v.status = 'A'
+        ) AS min_price,
+
+        -- Get maximum selling price from variants
+        (
+          SELECT MAX(v.additional_price + p.selling_price)
+          FROM product_variant v
+          WHERE v.product_id = p.id AND v.status = 'A'
+        ) AS max_price,
+
+        -- Review summary
+        COALESCE((
+          SELECT JSON_BUILD_OBJECT(
+            'average_rating', ROUND(AVG(r.rating)::numeric, 1),
+            'total_reviews', COUNT(*)
+          )
+          FROM product_review r
+          WHERE r.product_id = p.id
+        ), JSON_BUILD_OBJECT('average_rating', 0, 'total_reviews', 0)) AS review_summary,
+
+        -- Total stock
+        COALESCE((
+          SELECT SUM(s.quantity)
+          FROM inventory_stock s
+          JOIN product_variant v ON s.product_variant_id = v.id
+          WHERE v.product_id = p.id AND v.status = 'A'
+        ), 0) AS total_stock
+
+      FROM product p
+      LEFT JOIN uom u ON u.id = p.uom_id
+      WHERE p.id IN (
+        SELECT DISTINCT pc.product_id
+        FROM product_categories pc
+        WHERE pc.category_id = $1
+      )
+      AND p.status = 'A'
+      ORDER BY p.created_at DESC;
+    `;
+
+    const { rows } = await pool.query(query, [categoryId]);
+
+    return reply.send({
+      success: true,
+      message: "Products retrieved successfully",
+      data: {
+        category: categoryResult.rows[0],
+        products: rows,
+        total: rows.length,
+      },
+    });
+  } catch (err: any) {
+    console.error(err);
+    return reply.status(500).send({
+      success: false,
+      message: err.message,
+    });
+  }
+}
 export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
   const client = await pool.connect();
   try {

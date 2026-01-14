@@ -42,3 +42,14 @@ export function generateOrderId(): string {
 
   return `ORD-${dateStr}-${randomStr}`;
 }
+export function slugify(text: string) {
+  return text
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-") // replace spaces with hyphens
+    .replace(/[^\w\-]+/g, "") // remove all non-word chars
+    .replace(/\-\-+/g, "-") // replace multiple hyphens
+    .replace(/^-+/, "") // trim hyphens from start
+    .replace(/-+$/, ""); // trim hyphens from end
+}

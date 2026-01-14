@@ -13,7 +13,7 @@ export const UomModel = new CrudModel(
 );
 export const productModel = new CrudModel(
   "product",
-  ["uom_id", "name", "cost_price", "selling_price"], // required
+  ["uom_id", "name", "slug", "cost_price", "selling_price"], // required
   ["code"], // unique
   ["code", "regular_price", "description", "status", "created_by", "updated_by"] // optional
 );

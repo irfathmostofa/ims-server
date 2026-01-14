@@ -5,6 +5,7 @@ import pool from "../../config/db";
 import {
   generatePrefixedId,
   generateRandomBarcode,
+  slugify,
 } from "../../core/models/idGenerator";
 import {
   productModel,
@@ -28,6 +29,7 @@ type Variant = {
 
 type ProductData = {
   name: string;
+  slug: string;
   code?: string;
   status?: string;
   uom_id?: number;
@@ -147,6 +149,7 @@ export async function createProductInternal(
     const productInfo = {
       code: productData.code,
       name: productData.name,
+      slug: slugify(productData.name),
       uom_id: productData.uom_id!,
       cost_price: productData.cost_price!,
       selling_price: productData.selling_price!,
@@ -469,6 +472,7 @@ export async function bulkProductConfirm(
 
         const productData: ProductData = {
           name: productName,
+          slug: slugify(productName),
           uom_id: Number(prod.uom_id),
           cost_price: Number(prod.cost_price),
           selling_price: Number(prod.selling_price),

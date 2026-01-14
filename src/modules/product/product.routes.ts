@@ -19,9 +19,11 @@ import {
   getAllProducts,
   getProductBarcodes,
   getProductById,
+  getProductBySlug,
   getProductCat,
   getProductImages,
   getProductReviews,
+  getProductsByCategorySlug,
   getProductsPOS,
   getProductVariants,
   getUOM,
@@ -69,15 +71,25 @@ export default async function productRoutes(app: FastifyInstance) {
 
   app.post("/bulk-products", bulkCreateProducts);
 
-  app.post("/bulk/preview",{ preHandler: [app.authenticate] }, bulkProductPreview);
+  app.post(
+    "/bulk/preview",
+    { preHandler: [app.authenticate] },
+    bulkProductPreview
+  );
 
-  app.post("/bulk/confirm",{ preHandler: [app.authenticate] }, bulkProductConfirm);
+  app.post(
+    "/bulk/confirm",
+    { preHandler: [app.authenticate] },
+    bulkProductConfirm
+  );
 
   app.post("/get-all-products", getAllProducts);
   app.post("/get-pos-products", getProductsPOS);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);
   app.get("/products/:id", getProductById);
+  app.get("/product/:slug", getProductBySlug);
+  app.get("/get-cat-product/:slug", getProductsByCategorySlug);
   app.post(
     "/update-products/:id",
     { preHandler: [app.authenticate] },
