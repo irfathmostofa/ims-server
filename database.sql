@@ -450,11 +450,10 @@ CREATE TABLE payment_method (
     type VARCHAR(20) CHECK (type IN ('CASH','CARD','BANK','MOBILE','ONLINE','COD')),
     provider VARCHAR(50),
     STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-     created_by INT REFERENCES users(id),
     created_by INT NOT NULL REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE order_online (
     id SERIAL PRIMARY KEY,
@@ -489,7 +488,7 @@ CREATE TABLE order_delivery (
     delivery_method_id INT REFERENCES delivery_method(id),
     tracking_code VARCHAR(100),
     delivery_status VARCHAR(20) DEFAULT 'ASSIGNED' 
-        CHECK (delivery_status IN ('ASSIGNED','IN_TRANSIT','DELIVERED','RETURNED','CANCELLED')),
+    CHECK (delivery_status IN ('ASSIGNED','IN_TRANSIT','DELIVERED','RETURNED','CANCELLED')),
     cod_amount DECIMAL(12,2) DEFAULT 0,
     cod_collected BOOLEAN DEFAULT FALSE,
     cod_collected_date TIMESTAMP,
@@ -518,7 +517,7 @@ CREATE TABLE customer_items (
     customer_id INT REFERENCES customer(id),
     product_variant_id INT REFERENCES product_variant(id),
     item_type VARCHAR(10) NOT NULL
-        CHECK (item_type IN ('CART', 'WISHLIST')),
+    CHECK (item_type IN ('CART', 'WISHLIST')),
 
     quantity INTEGER DEFAULT 1 CHECK (quantity > 0),
     unit_price NUMERIC(10,2),
