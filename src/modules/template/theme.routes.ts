@@ -18,18 +18,18 @@ import {
 export async function themeRoutes(app: FastifyInstance) {
   /* ========= THEMES ========= */
   app.post("/themes/create", createTheme);
-  app.post("/themes/list", getThemes);
+  app.get("/themes/list", getThemes);
   app.post("/themes/get", getThemeById);
   app.post("/themes/update", updateTheme);
   app.post("/themes/delete", deleteTheme);
 
   /* ========= COMPONENT TYPES ========= */
   app.post("/component-types/create", createComponentType);
-  app.post("/component-types/list", getComponentTypes);
+  app.get("/component-types/list", getComponentTypes);
 
   /* ========= COMPONENT VARIANTS ========= */
   app.post("/component-variants/create", createComponentVariant);
-  app.post("/component-variants/list", getComponentVariants);
+  app.get("/component-variants/list", getComponentVariants);
 
   /* ========= THEME SECTIONS ========= */
   app.post("/theme-sections/create", createThemeSection);

@@ -544,7 +544,7 @@ CREATE TABLE product_review_image (
 );
 -- 1. THEMES TABLE
 CREATE TABLE themes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   slug VARCHAR(100) UNIQUE NOT NULL,
   description TEXT,
@@ -560,7 +560,7 @@ CREATE TABLE themes (
 
 -- 2. COMPONENT TYPES (Available section types)
 CREATE TABLE component_types (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id SERIAL PRIMARY KEY,
   name VARCHAR(50) UNIQUE NOT NULL, -- hero, product-grid, banner, etc.
   display_name VARCHAR(100) NOT NULL,
   category VARCHAR(50), -- header, content, footer
@@ -572,8 +572,8 @@ CREATE TABLE component_types (
 
 -- 3. COMPONENT VARIANTS (Different designs for each type)
 CREATE TABLE component_variants (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  component_type_id UUID REFERENCES component_types(id),
+  id SERIAL PRIMARY KEY,
+  component_type_id INT REFERENCES component_types(id),
   variant_name VARCHAR(50) NOT NULL, -- v1, v2, v3
   display_name VARCHAR(100) NOT NULL,
   description TEXT,
@@ -591,9 +591,9 @@ CREATE TABLE component_variants (
 
 -- 4. THEME SECTIONS (Actual sections in a theme)
 CREATE TABLE theme_sections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  theme_id UUID REFERENCES themes(id) ON DELETE CASCADE,
-  component_variant_id UUID REFERENCES component_variants(id),
+  id SERIAL PRIMARY KEY,
+  theme_id INT REFERENCES themes(id) ON DELETE CASCADE,
+  component_variant_id INT REFERENCES component_variants(id),
   
   -- Section metadata
   name VARCHAR(255) NOT NULL,
@@ -618,8 +618,8 @@ CREATE TABLE theme_sections (
 
 -- 5. ACTIVE THEME CACHE (For performance)
 CREATE TABLE active_theme_cache (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  theme_id UUID REFERENCES themes(id),
+  id SERIAL PRIMARY KEY,
+  theme_id INT REFERENCES themes(id),
   theme_data JSONB NOT NULL,
   hash VARCHAR(64) NOT NULL,
   generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
