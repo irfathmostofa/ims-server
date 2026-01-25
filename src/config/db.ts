@@ -7,8 +7,8 @@
 
 // export default pool;
 
-import { Pool } from 'pg'
-import { ENV } from './env'
+import { Pool } from "pg";
+import { ENV } from "./env";
 
 const pool = new Pool({
   host: ENV.DB_HOST,
@@ -17,17 +17,10 @@ const pool = new Pool({
   user: ENV.DB_USER,
   password: ENV.DB_PASSWORD,
 
-  max: 5,            // low RAM safe
+  max: 5, // low RAM safe
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
-})
+});
 
-// optional: verify once
-pool.query('SELECT 1')
-  .then(() => console.log('✅ PostgreSQL connected'))
-  .catch(err => {
-    console.error('❌ PostgreSQL connection error', err)
-    process.exit(1)
-  })
 
-export default pool
+export default pool;

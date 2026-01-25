@@ -14,7 +14,7 @@ import { invoiceItemModel, invoiceModel } from "../sales/sale.model";
 
 export async function createPurchaseOrder(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -69,8 +69,8 @@ export async function createPurchaseOrder(
     reply.send(
       successResponse(
         { ...newOrder, items: orderItems },
-        "Purchase order created successfully"
-      )
+        "Purchase order created successfully",
+      ),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -82,7 +82,7 @@ export async function createPurchaseOrder(
 
 export async function getAllPurchaseOrders(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const {
@@ -203,7 +203,7 @@ export async function getAllPurchaseOrders(
     const countQuery = `SELECT COUNT(*) as total_count FROM purchase_order po ${whereClause}`;
     const countResult = await pool.query(
       countQuery,
-      conditions.length > 0 ? values.slice(0, -2) : []
+      conditions.length > 0 ? values.slice(0, -2) : [],
     );
     const totalCount = parseInt(countResult.rows[0]?.total_count || "0");
     const totalPages = Math.ceil(totalCount / parseInt(limit));
@@ -221,8 +221,8 @@ export async function getAllPurchaseOrders(
             has_prev: parseInt(page) > 1,
           },
         },
-        "Purchase orders retrieved successfully"
-      )
+        "Purchase orders retrieved successfully",
+      ),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -231,7 +231,7 @@ export async function getAllPurchaseOrders(
 
 export async function getPurchaseOrderById(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -288,7 +288,7 @@ export async function getPurchaseOrderById(
     const result = { ...order, items };
 
     reply.send(
-      successResponse(result, "Purchase order retrieved successfully")
+      successResponse(result, "Purchase order retrieved successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -297,7 +297,7 @@ export async function getPurchaseOrderById(
 
 export async function updatePurchaseOrder(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -338,7 +338,7 @@ export async function updatePurchaseOrder(
 
     const updatedOrder = await purchaseOrderModel.findById(id);
     reply.send(
-      successResponse(updatedOrder, "Purchase order updated successfully")
+      successResponse(updatedOrder, "Purchase order updated successfully"),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -350,7 +350,7 @@ export async function updatePurchaseOrder(
 
 export async function deletePurchaseOrder(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
@@ -378,7 +378,7 @@ export async function deletePurchaseOrder(
     const deletedOrder = await purchaseOrderModel.delete(id);
 
     reply.send(
-      successResponse(deletedOrder, "Purchase order deleted successfully")
+      successResponse(deletedOrder, "Purchase order deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -389,7 +389,7 @@ export async function deletePurchaseOrder(
 
 export async function updateOrderStatus(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -422,7 +422,7 @@ export async function updateOrderStatus(
 
     const updatedOrder = await purchaseOrderModel.update(
       parseInt(id),
-      updateFields
+      updateFields,
     );
 
     if (!updatedOrder) {
@@ -434,8 +434,8 @@ export async function updateOrderStatus(
     reply.send(
       successResponse(
         updatedOrder,
-        `Purchase order status updated to ${status}`
-      )
+        `Purchase order status updated to ${status}`,
+      ),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -446,7 +446,7 @@ export async function updateOrderStatus(
 
 export async function receiveOrderItems(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
 
@@ -479,7 +479,7 @@ export async function receiveOrderItems(
         rows: [orderItem],
       } = await client.query(
         "SELECT * FROM purchase_order_items WHERE id = $1 AND order_id = $2",
-        [item.id, id]
+        [item.id, id],
       );
 
       if (!orderItem) {
@@ -492,14 +492,14 @@ export async function receiveOrderItems(
 
       if (newReceivedQty > parseFloat(orderItem.quantity.toString())) {
         throw new Error(
-          `Cannot receive more than ordered quantity for item ${item.id}`
+          `Cannot receive more than ordered quantity for item ${item.id}`,
         );
       }
 
       // Update received quantity
       await client.query(
         "UPDATE purchase_order_items SET received_quantity = $1 WHERE id = $2",
-        [newReceivedQty, item.id]
+        [newReceivedQty, item.id],
       );
 
       // Create stock transaction
@@ -517,7 +517,7 @@ export async function receiveOrderItems(
           item.received_quantity,
           orderItem.unit_price,
           notes || `Received from PO ${order.code}`,
-        ]
+        ],
       );
 
       // Update inventory stock
@@ -530,7 +530,7 @@ export async function receiveOrderItems(
           quantity = inventory_stock.quantity + $3,
           last_updated = CURRENT_TIMESTAMP
       `,
-        [order.branch_id, orderItem.product_variant_id, item.received_quantity]
+        [order.branch_id, orderItem.product_variant_id, item.received_quantity],
       );
     }
 
@@ -545,7 +545,7 @@ export async function receiveOrderItems(
       FROM purchase_order_items 
       WHERE order_id = $1
     `,
-      [id]
+      [id],
     );
 
     let newStatus = "PARTIAL";
@@ -559,7 +559,7 @@ export async function receiveOrderItems(
     // Update order status
     await client.query(
       "UPDATE purchase_order SET status = $1, delivery_date = CURRENT_DATE WHERE id = $2",
-      [newStatus, id]
+      [newStatus, id],
     );
 
     await client.query("COMMIT");
@@ -567,8 +567,8 @@ export async function receiveOrderItems(
     reply.send(
       successResponse(
         { order_id: id, status: newStatus, items_received: items.length },
-        "Items received successfully"
-      )
+        "Items received successfully",
+      ),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -582,7 +582,7 @@ export async function receiveOrderItems(
 
 export async function getPurchaseOrderSummary(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { branch_id, supplier_id, date_from, date_to } = req.query as any;
@@ -657,8 +657,8 @@ export async function getPurchaseOrderSummary(
           by_status: rows,
           overall: overall,
         },
-        "Purchase order summary retrieved successfully"
-      )
+        "Purchase order summary retrieved successfully",
+      ),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -667,7 +667,7 @@ export async function getPurchaseOrderSummary(
 
 export async function getPendingOrders(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { branch_id, supplier_id } = req.query as any;
@@ -720,15 +720,15 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
   try {
     await client.query("BEGIN");
 
-    const { purchase_order_id, received_by, grn_date, items, notes } =
+    const { purchase_order_id, received_by, received_date, items, notes } =
       req.body as any;
 
-    if (!grn_date) throw new Error("GRN date is required");
+    // if (!grn_date) throw new Error("GRN date is required");
 
     // 1️⃣ Validate Purchase Order
     const { rows: poRows } = await client.query(
       "SELECT * FROM purchase_order WHERE id = $1",
-      [purchase_order_id]
+      [purchase_order_id],
     );
     if (poRows.length === 0) throw new Error("Purchase order not found");
     const po = poRows[0];
@@ -744,17 +744,17 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
         branch_id: po.branch_id,
         party_id: po.supplier_id,
         type: "PURCHASE",
-        invoice_date: grn_date || new Date().toISOString().split("T")[0],
+        invoice_date: received_date || new Date().toISOString().split("T")[0],
         total_amount: items.reduce(
           (acc: any, item: any) =>
             acc + item.received_quantity * item.unit_price,
-          0
+          0,
         ),
         paid_amount: 0,
         status: "DUE",
         created_by: received_by,
       },
-      client
+      client,
     );
     // 3️⃣ Insert GRN
     const { rows: grnRows } = await client.query(
@@ -762,7 +762,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
         (purchase_order_id, code, received_date, received_by, notes)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [purchase_order_id, grn_code, grn_date, received_by, notes || null]
+      [purchase_order_id, grn_code, received_date, received_by, notes || null],
     );
     const grn = grnRows[0];
 
@@ -774,14 +774,14 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
       const { rows: poItemRows } = await client.query(
         `SELECT * FROM purchase_order_items 
          WHERE id = $1 AND order_id = $2`,
-        [item.po_item_id, purchase_order_id]
+        [item.po_item_id, purchase_order_id],
       );
       const poItem = poItemRows[0];
       if (!poItem) throw new Error(`PO item ${item.po_item_id} not found`);
 
       const receivedQty = Math.min(
         item.received_quantity,
-        poItem.quantity - poItem.received_quantity
+        poItem.quantity - poItem.received_quantity,
       );
       if (receivedQty <= 0) continue; // skip if fully received
 
@@ -790,7 +790,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
         `SELECT id, received_quantity 
          FROM grn_items 
          WHERE grn_id = $1 AND product_variant_id = $2`,
-        [grn.id, poItem.product_variant_id]
+        [grn.id, poItem.product_variant_id],
       );
 
       let grnItem;
@@ -802,7 +802,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
                notes = COALESCE($2, notes)
            WHERE id = $3
            RETURNING *`,
-          [receivedQty, item.notes || null, existingRows[0].id]
+          [receivedQty, item.notes || null, existingRows[0].id],
         );
         grnItem = updatedRows[0];
       } else {
@@ -818,7 +818,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
             poItem.quantity,
             receivedQty,
             item.notes || null,
-          ]
+          ],
         );
         grnItem = newRows[0];
       }
@@ -830,7 +830,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
         `UPDATE purchase_order_items
          SET received_quantity = received_quantity + $1
          WHERE id = $2`,
-        [receivedQty, poItem.id]
+        [receivedQty, poItem.id],
       );
 
       // 4b️⃣ Update inventory stock
@@ -839,7 +839,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
          VALUES ($1, $2, $3)
          ON CONFLICT (branch_id, product_variant_id)
          DO UPDATE SET quantity = inventory_stock.quantity + $3`,
-        [po.branch_id, poItem.product_variant_id, receivedQty]
+        [po.branch_id, poItem.product_variant_id, receivedQty],
       );
 
       // 4c️⃣ Insert stock transaction
@@ -847,7 +847,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
         `INSERT INTO stock_transaction
           (branch_id, product_variant_id, type, reference_id, quantity, direction)
          VALUES ($1, $2, 'PURCHASE', $3, $4, 'IN')`,
-        [po.branch_id, poItem.product_variant_id, grn.id, receivedQty]
+        [po.branch_id, poItem.product_variant_id, grn.id, receivedQty],
       );
       await invoiceItemModel.create(
         {
@@ -857,7 +857,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
           unit_price: poItem.unit_price,
           discount: 0,
         },
-        client
+        client,
       );
     }
 
@@ -865,7 +865,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
     const { rows: totalsRows } = await client.query(
       `SELECT SUM(quantity) AS total_ordered, SUM(received_quantity) AS total_received
        FROM purchase_order_items WHERE order_id = $1`,
-      [purchase_order_id]
+      [purchase_order_id],
     );
     const totals = totalsRows[0];
     const newStatus =
@@ -878,7 +878,7 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
       `UPDATE purchase_order
        SET status = $1, delivery_date = CURRENT_DATE
        WHERE id = $2`,
-      [newStatus, purchase_order_id]
+      [newStatus, purchase_order_id],
     );
 
     await client.query("COMMIT");
@@ -886,8 +886,8 @@ export async function createGRN(req: FastifyRequest, reply: FastifyReply) {
     reply.send(
       successResponse(
         { ...grn, items: grnItems, po_status: newStatus },
-        "GRN created successfully"
-      )
+        "GRN created successfully",
+      ),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -907,7 +907,7 @@ export async function getGRNById(req: FastifyRequest, reply: FastifyReply) {
     const items = await grnItemsModel.findByField("grn_id", id);
 
     reply.send(
-      successResponse({ ...grn, items }, "GRN retrieved successfully")
+      successResponse({ ...grn, items }, "GRN retrieved successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -953,8 +953,8 @@ export async function updateGRN(req: FastifyRequest, reply: FastifyReply) {
     reply.send(
       successResponse(
         { ...updatedGRN, items: grnItems },
-        "GRN updated successfully"
-      )
+        "GRN updated successfully",
+      ),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -965,7 +965,7 @@ export async function updateGRN(req: FastifyRequest, reply: FastifyReply) {
 }
 export async function updateGRNStatus(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -986,8 +986,8 @@ export async function updateGRNStatus(
     reply.send(
       successResponse(
         { ...grn, status },
-        `GRN ${status.toLowerCase()} successfully`
-      )
+        `GRN ${status.toLowerCase()} successfully`,
+      ),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1042,7 +1042,7 @@ export async function listGRNs(req: FastifyRequest, reply: FastifyReply) {
     if (search) {
       queryParams.push(`%${search}%`);
       whereConditions.push(
-        `(grn.code ILIKE $${queryParams.length} OR u.username ILIKE $${queryParams.length})`
+        `(grn.code ILIKE $${queryParams.length} OR u.username ILIKE $${queryParams.length})`,
       );
     }
 

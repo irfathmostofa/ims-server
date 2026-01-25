@@ -118,6 +118,7 @@ CREATE TABLE product_variant (
     product_id INT REFERENCES product(id) ON DELETE CASCADE,
     name VARCHAR(50), 
     weight DECIMAL(10,3),
+    sku VARCHAR(100) UNIQUE, 
     weight_unit VARCHAR(10) DEFAULT 'kg',
     is_replaceable BOOLEAN DEFAULT FALSE, 
     additional_price DECIMAL(12,2) DEFAULT 0,
