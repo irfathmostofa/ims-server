@@ -92,7 +92,7 @@ export async function deleteTheme(req: FastifyRequest, reply: FastifyReply) {
 
 export async function createComponentType(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const data = await componentTypeModel.create(req.body as any);
@@ -104,7 +104,7 @@ export async function createComponentType(
 
 export async function getComponentTypes(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const data = await componentTypeModel.findAll();
@@ -118,7 +118,7 @@ export async function getComponentTypes(
 
 export async function createComponentVariant(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const data = await componentVariantModel.create(req.body as any);
@@ -130,7 +130,7 @@ export async function createComponentVariant(
 
 export async function getComponentVariants(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const data = await componentVariantModel.findAll();
@@ -144,7 +144,7 @@ export async function getComponentVariants(
 
 export async function createThemeSection(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const fields = req.body as Record<string, any>;
@@ -159,7 +159,7 @@ export async function createThemeSection(
 
 export async function updateThemeSection(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as any;
@@ -175,7 +175,7 @@ export async function updateThemeSection(
 
 export async function deleteThemeSection(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as any;
@@ -212,7 +212,7 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
       `SELECT theme_data FROM active_theme_cache 
        WHERE theme_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
        ORDER BY generated_at DESC LIMIT 1`,
-      [theme.id]
+      [theme.id],
     );
 
     if (cacheRows.length > 0 && cacheRows[0].theme_data) {
@@ -345,7 +345,7 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
         ) as footer
       FROM themes t
       WHERE t.id = $1`,
-      [theme.id]
+      [theme.id],
     );
 
     if (compiledRows.length === 0) {
@@ -364,7 +364,7 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
 
     // Merge hero sections into content array, maintaining order
     const allContentSections = [...heroSections, ...contentSections].sort(
-      (a, b) => (a.order_index || 0) - (b.order_index || 0)
+      (a, b) => (a.order_index || 0) - (b.order_index || 0),
     );
 
     const finalTheme = {
@@ -403,7 +403,7 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
     await pool.query(
       `INSERT INTO active_theme_cache (theme_id, theme_data, hash, expires_at)
        VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
-      [theme.id, finalTheme, hash]
+      [theme.id, finalTheme, hash],
     );
 
     /* 6️⃣ Return compiled theme */
