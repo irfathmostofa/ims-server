@@ -188,7 +188,6 @@ export async function deleteThemeSection(
 
 export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
   try {
-    /* 1️⃣ Get the active theme */
     const { rows } = await pool.query(`
       SELECT *
       FROM themes
@@ -207,7 +206,6 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
 
     const theme = rows[0];
 
-    /* 2️⃣ Check cache first */
     const { rows: cacheRows } = await pool.query(
       `SELECT theme_data FROM active_theme_cache 
        WHERE theme_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
@@ -223,7 +221,6 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
       });
     }
 
-    /* 3️⃣ Compile theme sections using subqueries (more efficient) */
     const { rows: compiledRows } = await pool.query(
       `SELECT 
         t.*,
@@ -357,8 +354,6 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
 
     const compiledTheme = compiledRows[0];
 
-    /* 4️⃣ Create the final theme structure */
-    // Combine hero and content sections into single content array
     const heroSections = compiledTheme.hero || [];
     const contentSections = compiledTheme.content || [];
 
@@ -387,7 +382,6 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
       global_settings: compiledTheme.global_settings || {},
     };
 
-    /* 5️⃣ Save to cache - FIXED: Use upsert pattern */
     const crypto = require("crypto");
     const hash = crypto
       .createHash("md5")
@@ -406,7 +400,6 @@ export async function getActiveTheme(req: FastifyRequest, reply: FastifyReply) {
       [theme.id, finalTheme, hash],
     );
 
-    /* 6️⃣ Return compiled theme */
     return reply.send({
       success: true,
       message: "Active theme loaded successfully",
