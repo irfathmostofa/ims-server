@@ -147,7 +147,7 @@ export async function deleteRole(req: FastifyRequest, reply: FastifyReply) {
 
 export async function logActivity(
   data: ActivityLogData,
-  client?: any
+  client?: any,
 ): Promise<void> {
   const queryRunner = client || pool;
 
@@ -163,7 +163,7 @@ export async function logActivity(
         data.entity_id || null,
         data.description || null,
         data.ip_address || null,
-      ]
+      ],
     );
   } catch (err) {
     console.error("Activity log error:", err);
@@ -188,7 +188,7 @@ export async function autoLogActivity(
   action: string,
   entity: string,
   entity_id?: number,
-  description?: string
+  description?: string,
 ) {
   await logActivity({
     user_id: (req.user as any)?.id,
@@ -212,7 +212,7 @@ export async function getActivityLogs(
       to_date?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const {
@@ -267,7 +267,7 @@ export async function getActivityLogs(
     // Get total count
     const countResult = await pool.query(
       `SELECT COUNT(*) FROM activity_log al ${whereClause}`,
-      values
+      values,
     );
     const totalCount = parseInt(countResult.rows[0].count);
 
@@ -282,7 +282,7 @@ export async function getActivityLogs(
       ${whereClause}
       ORDER BY al.created_at DESC
       LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
-      [...values, parseInt(limit), offset]
+      [...values, parseInt(limit), offset],
     );
 
     reply.send({
@@ -310,7 +310,7 @@ export async function getActivityStats(
       to_date?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { from_date, to_date } = req.query;
@@ -344,7 +344,7 @@ export async function getActivityStats(
       ${whereClause}
       GROUP BY action
       ORDER BY action_count DESC`,
-      values
+      values,
     );
 
     // Get top users
@@ -359,7 +359,7 @@ export async function getActivityStats(
       GROUP BY al.user_id, u.name
       ORDER BY activity_count DESC
       LIMIT 10`,
-      values
+      values,
     );
 
     // Get recent entities
@@ -371,7 +371,7 @@ export async function getActivityStats(
       ${whereClause}
       GROUP BY entity
       ORDER BY count DESC`,
-      values
+      values,
     );
 
     reply.send({
@@ -396,7 +396,7 @@ export async function createSetupData(
       status?: "A" | "I";
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { group_name, key_name, value, status } = req.body;
@@ -416,7 +416,7 @@ export async function createSetupData(
       "CREATE",
       "setup_data",
       setupData.id,
-      `Created setup: ${key_name}`
+      `Created setup: ${key_name}`,
     );
 
     reply.send(successResponse(setupData, "Setup data created successfully"));
@@ -438,7 +438,7 @@ export async function getAllSetupData(
       search?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { page = "1", limit = "50", group_name, status, search } = req.query;
@@ -460,7 +460,7 @@ export async function getAllSetupData(
 
     if (search) {
       conditions.push(
-        `(key_name ILIKE $${paramIndex++} OR setup_code ILIKE $${paramIndex++})`
+        `(key_name ILIKE $${paramIndex++} OR setup_code ILIKE $${paramIndex++})`,
       );
       values.push(`%${search}%`, `%${search}%`);
     }
@@ -471,7 +471,7 @@ export async function getAllSetupData(
     // Get total count
     const countResult = await pool.query(
       `SELECT COUNT(*) FROM setup_data ${whereClause}`,
-      values
+      values,
     );
     const totalCount = parseInt(countResult.rows[0].count);
 
@@ -487,7 +487,7 @@ export async function getAllSetupData(
       ${whereClause}
       ORDER BY sd.group_name, sd.key_name
       LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
-      [...values, parseInt(limit), offset]
+      [...values, parseInt(limit), offset],
     );
 
     reply.send({
@@ -510,7 +510,7 @@ export async function getAllSetupData(
  */
 export async function getSetupData(
   req: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const setupId = parseInt(req.params.id);
@@ -524,7 +524,7 @@ export async function getSetupData(
       LEFT JOIN users u ON sd.created_by = u.id
       LEFT JOIN users u2 ON sd.updated_by = u2.id
       WHERE sd.id = $1`,
-      [setupId]
+      [setupId],
     );
 
     if (rows.length === 0) {
@@ -554,7 +554,7 @@ export async function getSetupByKey(
       group_name?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { setup_code, key_name, group_name } = req.body;
@@ -587,7 +587,7 @@ export async function getSetupByKey(
 
     const { rows } = await pool.query(
       `SELECT * FROM setup_data WHERE ${conditions.join(" AND ")}`,
-      values
+      values,
     );
 
     if (rows.length === 0) {
@@ -615,7 +615,7 @@ export async function getGroupedSetupData(
       status?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { status = "A" } = req.query;
@@ -636,7 +636,7 @@ export async function getGroupedSetupData(
       WHERE status = $1 AND group_name IS NOT NULL
       GROUP BY group_name
       ORDER BY group_name`,
-      [status]
+      [status],
     );
 
     reply.send({
@@ -662,7 +662,7 @@ export async function updateSetupData(
       status?: "A" | "I";
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const setupId = parseInt(req.params.id);
@@ -683,7 +683,7 @@ export async function updateSetupData(
       "UPDATE",
       "setup_data",
       setupId,
-      `Updated setup: ${setup.key_name}`
+      `Updated setup: ${setup.key_name}`,
     );
 
     reply.send({
@@ -701,7 +701,7 @@ export async function updateSetupData(
  */
 export async function deleteSetupData(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
@@ -718,7 +718,7 @@ export async function deleteSetupData(
       "DELETE",
       "setup_data",
       id,
-      `Deleted setup: ${setup.key_name}`
+      `Deleted setup: ${setup.key_name}`,
     );
 
     reply.send(successResponse(deleted, "Setup data deleted successfully"));
@@ -742,7 +742,7 @@ export async function bulkCreateSetupData(
       }>;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -761,7 +761,7 @@ export async function bulkCreateSetupData(
           status: item.status || "A",
           created_by: (req.user as any)?.id,
         },
-        client
+        client,
       );
       created.push(setupData);
     }
@@ -774,7 +774,7 @@ export async function bulkCreateSetupData(
       "BULK_CREATE",
       "setup_data",
       undefined,
-      `Created ${created.length} setup items`
+      `Created ${created.length} setup items`,
     );
 
     reply.send({
@@ -792,14 +792,19 @@ export async function bulkCreateSetupData(
 
 export async function createDeliveryMethod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
+    const userId = (req.user as any)?.id;
     const fields = req.body as Record<string, any>;
     fields.code = await generatePrefixedId("delivery_method", "DM");
+    fields.created_by = userId;
     const newDeliveryMethod = await deliveryMethodModel.create(fields);
     reply.send(
-      successResponse(newDeliveryMethod, "Delivery method created successfully")
+      successResponse(
+        newDeliveryMethod,
+        "Delivery method created successfully",
+      ),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -808,7 +813,7 @@ export async function createDeliveryMethod(
 
 export async function getDeliveryMethods(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const deliveryMethods = await deliveryMethodModel.findAll();
@@ -820,14 +825,14 @@ export async function getDeliveryMethods(
 
 export async function updateDeliveryMethod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: number };
     const fields = req.body as Record<string, any>;
     const updated = await deliveryMethodModel.update(id, fields);
     reply.send(
-      successResponse(updated, "Delivery method updated successfully")
+      successResponse(updated, "Delivery method updated successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -836,13 +841,13 @@ export async function updateDeliveryMethod(
 
 export async function deleteDeliveryMethod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
     const deleted = await deliveryMethodModel.delete(id);
     reply.send(
-      successResponse(deleted, "Delivery method deleted successfully")
+      successResponse(deleted, "Delivery method deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -851,14 +856,16 @@ export async function deleteDeliveryMethod(
 
 export async function createPaymentMethod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
+    const userId = (req.user as any)?.id;
     const fields = req.body as Record<string, any>;
     fields.code = await generatePrefixedId("payment_method", "PM");
+    fields.created_by = userId;
     const newPaymentMethod = await paymentMethodModel.create(fields);
     reply.send(
-      successResponse(newPaymentMethod, "Payment method created successfully")
+      successResponse(newPaymentMethod, "Payment method created successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -867,7 +874,7 @@ export async function createPaymentMethod(
 
 export async function getPaymentMethods(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const paymentMethods = await paymentMethodModel.findAll();
@@ -879,7 +886,7 @@ export async function getPaymentMethods(
 
 export async function updatePaymentMethod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: number };
@@ -893,7 +900,7 @@ export async function updatePaymentMethod(
 
 export async function deletePaymentMethod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };

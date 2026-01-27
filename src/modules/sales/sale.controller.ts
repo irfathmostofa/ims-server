@@ -64,7 +64,7 @@ function calculateInvoiceTotals(items: any[]): number {
 async function updateInvoiceStatus(invoiceId: number, client: any) {
   const invoice = await client.query(
     "SELECT total_amount, paid_amount, due_amount FROM invoice WHERE id = $1",
-    [invoiceId]
+    [invoiceId],
   );
 
   if (invoice.rows.length === 0) return;
@@ -91,7 +91,7 @@ async function updateInvoiceStatus(invoiceId: number, client: any) {
  */
 export async function createInvoice(
   req: FastifyRequest<{ Body: CreateInvoiceBody }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -119,7 +119,7 @@ export async function createInvoice(
     if (payments && payments.length > 0) {
       initialPaidAmount = payments.reduce(
         (sum, payment) => sum + payment.amount,
-        0
+        0,
       );
     }
 
@@ -149,7 +149,7 @@ export async function createInvoice(
         status: initialStatus, // Set proper initial status
         created_by: userId,
       },
-      client
+      client,
     );
 
     const invoiceId = invoice.id;
@@ -164,7 +164,7 @@ export async function createInvoice(
           unit_price: item.unit_price,
           discount: item.discount || 0,
         },
-        client
+        client,
       );
 
       // Update inventory stock
@@ -175,7 +175,7 @@ export async function createInvoice(
         ON CONFLICT (branch_id, product_variant_id)
         DO UPDATE SET quantity = inventory_stock.quantity - $3
         `,
-        [branch_id, item.product_variant_id, item.quantity]
+        [branch_id, item.product_variant_id, item.quantity],
       );
 
       // Record stock transaction
@@ -188,7 +188,7 @@ export async function createInvoice(
           quantity: item.quantity,
           direction: "OUT",
         },
-        client
+        client,
       );
     }
 
@@ -201,8 +201,9 @@ export async function createInvoice(
             method: payment.method.toUpperCase() as "CASH" | "BANK" | "ONLINE",
             amount: payment.amount,
             reference_no: payment.reference_no,
+            created_by: userId,
           },
-          client
+          client,
         );
       }
 
@@ -237,7 +238,7 @@ export async function getInvoiceById(invoiceId: number, client?: any) {
   // Get invoice
   const invoiceResult = await queryRunner.query(
     "SELECT * FROM invoice WHERE id = $1",
-    [invoiceId]
+    [invoiceId],
   );
 
   if (invoiceResult.rows.length === 0) {
@@ -258,13 +259,13 @@ export async function getInvoiceById(invoiceId: number, client?: any) {
     JOIN product p ON pv.product_id = p.id
     WHERE ii.invoice_id = $1
     ORDER BY ii.id`,
-    [invoiceId]
+    [invoiceId],
   );
 
   // Get payments
   const paymentsResult = await queryRunner.query(
     "SELECT * FROM payments WHERE invoice_id = $1 ORDER BY payment_date DESC",
-    [invoiceId]
+    [invoiceId],
   );
 
   return {
@@ -279,7 +280,7 @@ export async function getInvoiceById(invoiceId: number, client?: any) {
  */
 export async function getInvoice(
   req: FastifyRequest<{ Params: { id: number } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const invoiceId = req.params.id;
@@ -307,7 +308,7 @@ export async function getInvoice(
 
 export async function getAllInvoices(
   req: FastifyRequest<{ Body: getAllInvoiceBody }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const {
@@ -407,7 +408,7 @@ export async function updateInvoice(
     Params: { id: string };
     Body: UpdateInvoiceBody;
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -445,7 +446,7 @@ export async function updateInvoice(
             discount: item.discount || 0,
             created_by: (req.user as { id: number }).id,
           },
-          client
+          client,
         );
       }
 
@@ -483,7 +484,7 @@ export async function updateInvoice(
  */
 export async function deleteInvoice(
   req: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -528,7 +529,7 @@ export async function addPayment(
     Params: { id: string };
     Body: Payment;
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   const userId = (req.user as any)?.id;
@@ -541,7 +542,7 @@ export async function addPayment(
     // Check if invoice exists
     const invoiceResult = await client.query(
       "SELECT * FROM invoice WHERE id = $1",
-      [invoiceId]
+      [invoiceId],
     );
 
     if (invoiceResult.rows.length === 0) {
@@ -556,7 +557,7 @@ export async function addPayment(
     // Check if payment exceeds due amount
     if (amount > invoice.due_amount) {
       throw new Error(
-        `Payment amount (${amount}) exceeds due amount (${invoice.due_amount})`
+        `Payment amount (${amount}) exceeds due amount (${invoice.due_amount})`,
       );
     }
 
@@ -569,7 +570,7 @@ export async function addPayment(
         reference_no,
         // created_by: userId,
       },
-      client
+      client,
     );
 
     // Update paid amount
@@ -601,7 +602,7 @@ export async function getAllPayments(
   req: FastifyRequest<{
     Body: { page?: string; limit?: string; filters?: any };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { page = "1", limit = "10" } = req.body;
@@ -673,14 +674,14 @@ export async function getAllPayments(
  */
 export async function getInvoicePayments(
   req: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const invoiceId = parseInt(req.params.id);
 
     const paymentsResult = await pool.query(
       "SELECT * FROM payments WHERE invoice_id = $1 ORDER BY payment_date DESC",
-      [invoiceId]
+      [invoiceId],
     );
 
     reply.send({
@@ -697,7 +698,7 @@ export async function getInvoicePayments(
  */
 export async function deletePayment(
   req: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -708,7 +709,7 @@ export async function deletePayment(
     // Get payment details
     const paymentResult = await client.query(
       "SELECT * FROM payments WHERE id = $1",
-      [paymentId]
+      [paymentId],
     );
 
     if (paymentResult.rows.length === 0) {
@@ -723,7 +724,7 @@ export async function deletePayment(
     // Update invoice paid amount
     await client.query(
       "UPDATE invoice SET paid_amount = paid_amount - $1 WHERE id = $2",
-      [payment.amount, payment.invoice_id]
+      [payment.amount, payment.invoice_id],
     );
 
     // Delete payment
@@ -761,7 +762,7 @@ export async function getInvoiceSummary(
       to_date?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { type, branch_id, from_date, to_date } = req.query;
@@ -801,7 +802,7 @@ export async function getInvoiceSummary(
         COUNT(CASE WHEN status = 'DUE' THEN 1 END) as due_count
       FROM invoice
       ${whereClause}`,
-      values
+      values,
     );
 
     reply.send({

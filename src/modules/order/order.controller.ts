@@ -52,7 +52,7 @@ function calculateOrderTotals(items: OrderItem[], discountAmount: number = 0) {
 
 export async function createOnlineOrder(
   req: FastifyRequest<{ Body: CreateOrderBody }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -77,7 +77,7 @@ export async function createOnlineOrder(
     // Calculate totals
     const { totalAmount, netAmount } = calculateOrderTotals(
       items,
-      discount_amount
+      discount_amount,
     );
 
     // Generate order code
@@ -98,7 +98,7 @@ export async function createOnlineOrder(
         status: "A",
         created_at: new Date(),
       },
-      client
+      client,
     );
 
     const orderId = order.id;
@@ -113,7 +113,7 @@ export async function createOnlineOrder(
           unit_price: item.unit_price,
           discount: item.discount || 0,
         },
-        client
+        client,
       );
     }
 
@@ -129,7 +129,7 @@ export async function createOnlineOrder(
         status: "A",
         created_by: userId,
       },
-      client
+      client,
     );
 
     await client.query("COMMIT");
@@ -171,7 +171,7 @@ export async function getOrderById(orderId: number, client?: any) {
     LEFT JOIN delivery_method dm ON o.delivery_method_id = dm.id
     LEFT JOIN payment_method pm ON o.payment_method_id = pm.id
     WHERE o.id = $1`,
-    [orderId]
+    [orderId],
   );
 
   if (orderResult.rows.length === 0) {
@@ -193,7 +193,7 @@ export async function getOrderById(orderId: number, client?: any) {
     JOIN product p ON pv.product_id = p.id
     WHERE oi.order_id = $1
     ORDER BY oi.id`,
-    [orderId]
+    [orderId],
   );
 
   // Get delivery info
@@ -204,7 +204,7 @@ export async function getOrderById(orderId: number, client?: any) {
     FROM order_delivery od
     LEFT JOIN delivery_method dm ON od.delivery_method_id = dm.id
     WHERE od.order_id = $1`,
-    [orderId]
+    [orderId],
   );
 
   // Get payment info
@@ -216,7 +216,7 @@ export async function getOrderById(orderId: number, client?: any) {
     LEFT JOIN payment_method pm ON op.payment_method_id = pm.id
     WHERE op.order_id = $1
     ORDER BY op.paid_at DESC`,
-    [orderId]
+    [orderId],
   );
 
   return {
@@ -231,7 +231,7 @@ export async function getOrderById(orderId: number, client?: any) {
 
 export async function getOrder(
   req: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const orderId = parseInt(req.params.id);
@@ -267,7 +267,7 @@ export async function getAllOrders(
       to_date?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const {
@@ -316,7 +316,7 @@ export async function getAllOrders(
     // Get total count
     const countResult = await pool.query(
       `SELECT COUNT(*) FROM order_online o ${whereClause}`,
-      values
+      values,
     );
     const totalCount = parseInt(countResult.rows[0].count);
 
@@ -358,7 +358,7 @@ export async function getAllOrders(
       ORDER BY o.created_at DESC
       LIMIT $${paramIndex++} OFFSET $${paramIndex}
       `,
-      [...values, parseInt(limit), offset]
+      [...values, parseInt(limit), offset],
     );
 
     reply.send({
@@ -386,7 +386,7 @@ export async function updateOrderStatus(
       payment_status?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const orderId = req.body.id;
@@ -423,7 +423,7 @@ export async function updateDeliveryStatus(
       courier_response?: any;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -435,7 +435,7 @@ export async function updateDeliveryStatus(
     // Get delivery record
     const deliveryResult = await client.query(
       "SELECT id FROM order_delivery WHERE order_id = $1",
-      [orderId]
+      [orderId],
     );
 
     if (deliveryResult.rows.length === 0) {
@@ -456,7 +456,7 @@ export async function updateDeliveryStatus(
       await orderOnlineModel.update(
         orderId,
         { order_status: "COMPLETED" },
-        client
+        client,
       );
     }
 
@@ -489,7 +489,7 @@ export async function recordOrderPayment(
       provider_response?: any;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -503,7 +503,7 @@ export async function recordOrderPayment(
     // Get order
     const orderResult = await client.query(
       "SELECT * FROM order_online WHERE id = $1",
-      [orderId]
+      [orderId],
     );
 
     if (orderResult.rows.length === 0) {
@@ -515,7 +515,7 @@ export async function recordOrderPayment(
     // Validate amount
     if (amount !== parseFloat(order.net_amount)) {
       throw new Error(
-        `Payment amount (${amount}) does not match order amount (${order.net_amount})`
+        `Payment amount (${amount}) does not match order amount (${order.net_amount})`,
       );
     }
 
@@ -533,7 +533,7 @@ export async function recordOrderPayment(
         created_by: userId,
         creation_date: new Date(),
       },
-      client
+      client,
     );
 
     // Update order payment status
@@ -564,7 +564,7 @@ export async function cancelOrder(
       reason?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -575,7 +575,7 @@ export async function cancelOrder(
     // Get order
     const orderResult = await client.query(
       "SELECT * FROM order_online WHERE id = $1",
-      [orderId]
+      [orderId],
     );
 
     if (orderResult.rows.length === 0) {
@@ -596,7 +596,7 @@ export async function cancelOrder(
     await orderOnlineModel.update(
       orderId,
       { order_status: "CANCELLED" },
-      client
+      client,
     );
 
     await client.query("COMMIT");
@@ -617,7 +617,7 @@ export async function cancelOrder(
 }
 export async function getCustomerOrder(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: number };
@@ -639,7 +639,7 @@ export async function addCustomerItem(
       status?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const {
@@ -666,13 +666,13 @@ export async function addCustomerItem(
 
 export async function getCustomerItems(
   req: FastifyRequest<{ Body: { customerId: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const customerId = parseInt(req.body.customerId);
     const items = await customerItemsModel.findByField(
       "customer_id",
-      customerId
+      customerId,
     );
     reply.send(successResponse(items));
   } catch (err: any) {
@@ -689,7 +689,7 @@ export async function updateCustomerItem(
       status?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id, quantity, unit_price, status } = req.body;
@@ -706,7 +706,7 @@ export async function updateCustomerItem(
 
 export async function deleteCustomerItem(
   req: FastifyRequest<{ Body: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const itemId = parseInt(req.body.id);

@@ -3,25 +3,25 @@ import { CrudModel } from "../../core/models/crud.model";
 export const companyModel = new CrudModel(
   "company",
   ["code", "name", "address", "phone", "email", "logo", "website"],
-  ["code", "name", "address", "phone", "email"]
+  ["code", "name", "address", "phone", "email"],
 );
 
 export const brancheModel = new CrudModel(
   "branch",
   ["code", "company_id", "name", "type", "address", "phone"],
-  ["code", "name"]
+  ["code", "name"],
 );
 export const roleModel = new CrudModel(
   "role",
   ["code", "name", "description"],
-  ["code", "name"]
+  ["code", "name"],
 );
 
 export const setupDataModel = new CrudModel(
   "setup_data",
   ["key_name", "value"],
   ["setup_code"],
-  ["setup_code", "group_name", "status", "created_by", "updated_by"]
+  ["setup_code", "group_name", "status", "created_by", "updated_by"],
 );
 export const deliveryMethodModel = new CrudModel(
   "delivery_method",
@@ -35,13 +35,13 @@ export const deliveryMethodModel = new CrudModel(
     "token_expiry",
     "status",
     "created_by",
-    "creation_date",
-  ]
+    "created_at",
+  ],
 );
 
 export const paymentMethodModel = new CrudModel(
   "payment_method",
   ["code", "name", "type", "provider"],
   ["code", "name"],
-  ["status", "created_by", "creation_date"]
+  ["status", "created_by", "created_at"],
 );

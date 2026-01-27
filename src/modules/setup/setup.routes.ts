@@ -58,7 +58,7 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.post(
     "/create-setup",
     { preHandler: [app.authenticate] },
-    createSetupData
+    createSetupData,
   );
   app.post("/create-setup-bulk", bulkCreateSetupData);
   app.get("/get-setup-data", getAllSetupData);
@@ -68,13 +68,37 @@ export default async function setupRoutes(app: FastifyInstance) {
   app.post("/update-setup-data/:id", updateSetupData);
   app.post("/delete-setup-data", deleteSetupData);
 
-  app.post("/create-delivery-method", createDeliveryMethod);
+  app.post(
+    "/create-delivery-method",
+    { preHandler: [app.authenticate] },
+    createDeliveryMethod,
+  );
   app.get("/get-delivery-methods", getDeliveryMethods);
-  app.post("/update-delivery-method/:id", updateDeliveryMethod);
-  app.post("/delete-delivery-method", deleteDeliveryMethod);
+  app.post(
+    "/update-delivery-method/:id",
+    { preHandler: [app.authenticate] },
+    updateDeliveryMethod,
+  );
+  app.post(
+    "/delete-delivery-method",
+    { preHandler: [app.authenticate] },
+    deleteDeliveryMethod,
+  );
 
-  app.post("/create-payment-method", createPaymentMethod);
+  app.post(
+    "/create-payment-method",
+    { preHandler: [app.authenticate] },
+    createPaymentMethod,
+  );
   app.get("/get-payment-methods", getPaymentMethods);
-  app.post("/update-payment-method/:id", updatePaymentMethod);
-  app.post("/delete-payment-method", deletePaymentMethod);
+  app.post(
+    "/update-payment-method/:id",
+    { preHandler: [app.authenticate] },
+    updatePaymentMethod,
+  );
+  app.post(
+    "/delete-payment-method",
+    { preHandler: [app.authenticate] },
+    deletePaymentMethod,
+  );
 }
