@@ -664,19 +664,193 @@ export async function addCustomerItem(
   }
 }
 
+// In your API handler file
 export async function getCustomerItems(
   req: FastifyRequest<{ Body: { customerId: string } }>,
   reply: FastifyReply,
 ) {
   try {
     const customerId = parseInt(req.body.customerId);
-    const items = await customerItemsModel.findByField(
-      "customer_id",
-      customerId,
-    );
-    reply.send(successResponse(items));
+
+    // Using your existing DB client/connection
+    const query = `
+      SELECT 
+          ci.id,
+          ci.customer_id,
+          ci.product_variant_id,
+          ci.item_type,
+          ci.quantity,
+          ci.unit_price,
+          ci.status,
+          ci.created_at,
+          ci.updated_at,
+          
+          -- Product variant details
+          pv.code as variant_code,
+          pv.name as variant_name,
+          pv.weight as variant_weight,
+          pv.weight_unit as variant_weight_unit,
+          pv.sku,
+          pv.additional_price,
+          pv.is_replaceable,
+          
+          -- Product details
+          p.id as product_id,
+          p.code as product_code,
+          p.name as product_name,
+          p.slug as product_slug,
+          p.description as product_description,
+          p.cost_price as product_cost_price,
+          p.selling_price as product_selling_price,
+          p.regular_price as product_regular_price,
+          
+          -- UOM details
+          u.id as uom_id,
+          u.name as uom_name,
+          u.symbol as uom_symbol,
+          u.code as uom_code,
+          
+          -- Primary category
+          pc.category_id,
+          c.name as category_name,
+          c.slug as category_slug,
+          c.code as category_code,
+          
+          -- Primary product image for variant
+          pi.url as product_image_url,
+          pi.alt_text as product_image_alt,
+          
+          -- Primary product image for product (fallback)
+          (
+            SELECT url 
+            FROM product_image 
+            WHERE product_variant_id IN (
+              SELECT id FROM product_variant WHERE product_id = p.id LIMIT 1
+            ) 
+            AND is_primary = TRUE 
+            LIMIT 1
+          ) as fallback_image_url,
+          
+          -- Primary barcode
+          pb.barcode,
+          pb.type as barcode_type
+          
+      FROM customer_items ci
+      
+      LEFT JOIN product_variant pv 
+        ON ci.product_variant_id = pv.id 
+        AND pv.status = 'A'
+      
+      LEFT JOIN product p 
+        ON pv.product_id = p.id 
+        AND p.status = 'A'
+      
+      LEFT JOIN uom u 
+        ON p.uom_id = u.id 
+        AND u.status = 'A'
+      
+      LEFT JOIN product_categories pc 
+        ON p.id = pc.product_id 
+        AND pc.is_primary = TRUE
+      
+      LEFT JOIN category c 
+        ON pc.category_id = c.id 
+        AND c.status = 'A'
+      
+      LEFT JOIN product_image pi 
+        ON pv.id = pi.product_variant_id 
+        AND pi.is_primary = TRUE 
+        AND pi.status = 'A'
+      
+      LEFT JOIN product_barcode pb 
+        ON pv.id = pb.product_variant_id 
+        AND pb.is_primary = TRUE 
+        AND pb.status = 'A'
+      
+      WHERE ci.customer_id = $1
+        AND ci.status = 'A'
+      
+      ORDER BY ci.created_at DESC
+    `;
+
+    const { rows: items } = await pool.query(query, [customerId]);
+
+    // Transform the data for frontend consumption
+    const transformedItems = items.map((item: any) => {
+      // Calculate final price (product selling price + variant additional price)
+      const variantAdditionalPrice = parseFloat(item.additional_price) || 0;
+      const productSellingPrice = parseFloat(item.product_selling_price) || 0;
+      const finalPrice = productSellingPrice + variantAdditionalPrice;
+
+      // Use cart unit price if available, otherwise calculate
+      const itemPrice = parseFloat(item.unit_price) || finalPrice;
+
+      return {
+        // Cart item info
+        id: item.id,
+        customer_id: item.customer_id,
+        product_variant_id: item.product_variant_id,
+        item_type: item.item_type,
+        quantity: item.quantity,
+        unit_price: itemPrice.toFixed(2),
+        status: item.status,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+
+        // Product variant info
+        variant_code: item.variant_code,
+        variant_name: item.variant_name,
+        variant_weight: item.variant_weight,
+        variant_weight_unit: item.variant_weight_unit,
+        sku: item.sku,
+        additional_price: item.additional_price,
+        is_replaceable: item.is_replaceable,
+
+        // Product info
+        product_id: item.product_id,
+        product_code: item.product_code,
+        product_name: item.product_name,
+        product_slug: item.product_slug,
+        product_description: item.product_description,
+        product_cost_price: item.product_cost_price,
+        product_selling_price: item.product_selling_price,
+        product_regular_price: item.product_regular_price,
+
+        // UOM info
+        uom_id: item.uom_id,
+        uom_name: item.uom_name,
+        uom_symbol: item.uom_symbol,
+        uom_code: item.uom_code,
+
+        // Category info
+        category_id: item.category_id,
+        category_name: item.category_name,
+        category_slug: item.category_slug,
+        category_code: item.category_code,
+
+        // Image info - use variant image first, then fallback to product image
+        image: item.product_image_url || item.fallback_image_url || "",
+        product_image_alt: item.product_image_alt || item.product_name || "",
+
+        // Barcode info
+        barcode: item.barcode,
+        barcode_type: item.barcode_type,
+
+        // Calculated fields
+        final_price: finalPrice.toFixed(2),
+        total_price: (itemPrice * item.quantity).toFixed(2),
+        is_available: Boolean(item.product_id && item.variant_code), // Basic availability check
+      };
+    });
+
+    reply.send(successResponse(transformedItems));
   } catch (err: any) {
-    reply.status(400).send({ success: false, message: err.message });
+    req.log.error(err);
+    reply.status(400).send({
+      success: false,
+      message: "Failed to fetch customer items",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
   }
 }
 
