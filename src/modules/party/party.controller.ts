@@ -43,25 +43,137 @@ export async function getPartyById(req: FastifyRequest, reply: FastifyReply) {
     const data = await pool.query(
       `
       SELECT 
-        p.*,
-        COALESCE(SUM(CASE 
-          WHEN i.type = 'SALE' THEN i.due_amount 
-          ELSE 0 
-        END), 0) as total_receivable,
-        COALESCE(SUM(CASE 
-          WHEN i.type = 'PURCHASE' THEN i.due_amount 
-          ELSE 0 
-        END), 0) as total_payable,
-        COUNT(i.id) as total_invoices
-      FROM party p
-      LEFT JOIN invoice i ON p.id = i.party_id
-      WHERE p.id = $1 AND p.type = $2
-      GROUP BY p.id
+        -- Info as single object (not array since it's one party)
+        (
+          SELECT json_build_object(
+            'id', p.id,
+            'code', p.code,
+            'name', p.name,
+            'type', p.type,
+            'phone', p.phone,
+            'email', p.email,
+            'address', p.address,
+            'credit_limit', p.credit_limit,
+            'loyalty_points', p.loyalty_points,
+            'status', p.status,
+            'branch_name', b.name,
+            'created_at', p.created_at
+          )
+          FROM party p
+          LEFT JOIN branch b ON p.branch_id = b.id
+          WHERE p.id = $1 AND p.type = $2
+        ) as info,
+        
+        -- Payments as array
+        (
+          SELECT COALESCE(json_agg(
+            json_build_object(
+              'id', pm.id,
+              'invoice_code', i.code,
+              'invoice_type', i.type,
+              'method', pm.method,
+              'amount', pm.amount,
+              'payment_date', pm.payment_date,
+              'reference_no', pm.reference_no,
+              'created_by_name', u.username,
+              'created_at', pm.created_at
+            ) ORDER BY pm.payment_date DESC
+          ), '[]'::json)
+          FROM payments pm
+          JOIN invoice i ON pm.invoice_id = i.id
+          JOIN users u ON pm.created_by = u.id
+          WHERE i.party_id = $1
+        ) as payments,
+        
+        -- Invoices as array
+        (
+          SELECT COALESCE(json_agg(
+            json_build_object(
+              'id', i.id,
+              'code', i.code,
+              'type', i.type,
+              'invoice_date', i.invoice_date,
+              'total_amount', i.total_amount,
+              'paid_amount', i.paid_amount,
+              'due_amount', i.due_amount,
+              'status', i.status,
+              'created_by_name', creator.username,
+              'created_at', i.created_at,
+              'items', (
+                SELECT COALESCE(json_agg(
+                  json_build_object(
+                    'product_variant_id', ii.product_variant_id,
+                    'quantity', ii.quantity,
+                    'unit_price', ii.unit_price,
+                    'discount', ii.discount,
+                    'subtotal', ii.subtotal
+                  )
+                ), '[]'::json)
+                FROM invoice_items ii
+                WHERE ii.invoice_id = i.id
+              )
+            ) ORDER BY i.invoice_date DESC
+          ), '[]'::json)
+          FROM invoice i
+          LEFT JOIN users creator ON i.created_by = creator.id
+          WHERE i.party_id = $1
+        ) as invoices,
+        
+        -- Summary statistics as object
+        (
+          SELECT json_build_object(
+            'total_outstanding', COALESCE(SUM(CASE WHEN i.status IN ('DUE', 'PARTIAL') THEN i.due_amount ELSE 0 END), 0),
+            'total_sales', COALESCE(SUM(CASE WHEN i.type = 'SALE' THEN i.total_amount ELSE 0 END), 0),
+            'total_purchases', COALESCE(SUM(CASE WHEN i.type = 'PURCHASE' THEN i.total_amount ELSE 0 END), 0),
+            'total_invoices', COUNT(DISTINCT i.id),
+            'total_payments', (
+              SELECT COALESCE(SUM(amount), 0)
+              FROM payments pm
+              JOIN invoice inv ON pm.invoice_id = inv.id
+              WHERE inv.party_id = $1
+            ),
+            'credit_utilization', CASE 
+              WHEN (SELECT credit_limit FROM party WHERE id = $1) > 0 
+              THEN ROUND((COALESCE(SUM(CASE WHEN i.status IN ('DUE', 'PARTIAL') THEN i.due_amount ELSE 0 END), 0) / 
+                (SELECT credit_limit FROM party WHERE id = $1)) * 100, 2)
+              ELSE 0
+            END
+          )
+          FROM invoice i
+          WHERE i.party_id = $1
+        ) as summary,
+        
+        -- Only outstanding invoices as separate array
+        (
+          SELECT COALESCE(json_agg(
+            json_build_object(
+              'id', i.id,
+              'code', i.code,
+              'type', i.type,
+              'invoice_date', i.invoice_date,
+              'total_amount', i.total_amount,
+              'due_amount', i.due_amount,
+              'status', i.status,
+              'days_overdue', CURRENT_DATE - i.invoice_date
+            ) ORDER BY i.invoice_date DESC
+          ), '[]'::json)
+          FROM invoice i
+          WHERE i.party_id = $1 
+          AND i.status IN ('DUE', 'PARTIAL')
+        ) as outstanding_invoices
     `,
       [id, type],
     );
 
-    reply.send(successResponse(data.rows[0]));
+    const result = {
+      info: data.rows[0].info || {},
+      payments: data.rows[0].payments || [],
+      invoices: data.rows[0].invoices || [],
+      summary: data.rows[0].summary || {},
+      outstanding_invoices: data.rows[0].outstanding_invoices || [],
+    };
+
+    reply.send(successResponse(result));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
