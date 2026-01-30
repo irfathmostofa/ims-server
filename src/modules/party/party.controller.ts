@@ -43,7 +43,6 @@ export async function getPartyById(req: FastifyRequest, reply: FastifyReply) {
     const data = await pool.query(
       `
       SELECT 
-        -- Info as single object (not array since it's one party)
         (
           SELECT json_build_object(
             'id', p.id,
@@ -63,8 +62,6 @@ export async function getPartyById(req: FastifyRequest, reply: FastifyReply) {
           LEFT JOIN branch b ON p.branch_id = b.id
           WHERE p.id = $1 AND p.type = $2
         ) as info,
-        
-        -- Payments as array
         (
           SELECT COALESCE(json_agg(
             json_build_object(
@@ -84,8 +81,6 @@ export async function getPartyById(req: FastifyRequest, reply: FastifyReply) {
           JOIN users u ON pm.created_by = u.id
           WHERE i.party_id = $1
         ) as payments,
-        
-        -- Invoices as array
         (
           SELECT COALESCE(json_agg(
             json_build_object(
@@ -118,8 +113,6 @@ export async function getPartyById(req: FastifyRequest, reply: FastifyReply) {
           LEFT JOIN users creator ON i.created_by = creator.id
           WHERE i.party_id = $1
         ) as invoices,
-        
-        -- Summary statistics as object
         (
           SELECT json_build_object(
             'total_outstanding', COALESCE(SUM(CASE WHEN i.status IN ('DUE', 'PARTIAL') THEN i.due_amount ELSE 0 END), 0),
@@ -142,8 +135,6 @@ export async function getPartyById(req: FastifyRequest, reply: FastifyReply) {
           FROM invoice i
           WHERE i.party_id = $1
         ) as summary,
-        
-        -- Only outstanding invoices as separate array
         (
           SELECT COALESCE(json_agg(
             json_build_object(
