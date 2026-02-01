@@ -188,7 +188,6 @@ export async function updateParty(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
-
 export async function deleteParty(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = req.body as { id: number };
