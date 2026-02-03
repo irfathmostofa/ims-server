@@ -13,11 +13,13 @@ import { generatePrefixedId } from "../../core/models/idGenerator";
 // account head
 export async function createAccountHead(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const data = req.body as any;
+    const userId = (req.user as any)?.id;
     data.code = await generatePrefixedId("account_head", "AH");
+    data.created_by = userId;
     const head = await accountHeadModel.create(data);
     reply.send(successResponse(head, "Account head created successfully"));
   } catch (err: any) {
@@ -27,7 +29,7 @@ export async function createAccountHead(
 
 export async function listAccountHeads(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const heads = await accountHeadModel.findAll();
@@ -38,11 +40,13 @@ export async function listAccountHeads(
 }
 export async function updateAccountHead(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
     const data = req.body as any;
+    const userId = (req.user as any)?.id;
+    data.updated_by = userId;
     const updated = await accountHeadModel.update(parseInt(id), data);
     reply.send(successResponse(updated, "Account head updated successfully"));
   } catch (err: any) {
@@ -52,7 +56,7 @@ export async function updateAccountHead(
 
 export async function deleteAccountHead(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: string };
@@ -113,13 +117,13 @@ export async function deleteAccount(req: FastifyRequest, reply: FastifyReply) {
 
 export async function createAccountingPeriod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const data = req.body as any;
     const period = await accountingPeriodModel.create(data);
     reply.send(
-      successResponse(period, "Accounting period created successfully")
+      successResponse(period, "Accounting period created successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -128,12 +132,12 @@ export async function createAccountingPeriod(
 
 export async function listAccountingPeriods(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const periods = await accountingPeriodModel.findAll();
     reply.send(
-      successResponse(periods, "Accounting periods retrieved successfully")
+      successResponse(periods, "Accounting periods retrieved successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -141,14 +145,14 @@ export async function listAccountingPeriods(
 }
 export async function updateAccountingPeriod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
     const data = req.body as any;
     const updated = await accountingPeriodModel.update(parseInt(id), data);
     reply.send(
-      successResponse(updated, "Accounting period updated successfully")
+      successResponse(updated, "Accounting period updated successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -157,13 +161,13 @@ export async function updateAccountingPeriod(
 
 export async function deleteAccountingPeriod(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: string };
     const deleted = await accountingPeriodModel.delete(parseInt(id));
     reply.send(
-      successResponse(deleted, "Accounting period deleted successfully")
+      successResponse(deleted, "Accounting period deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -173,7 +177,7 @@ export async function deleteAccountingPeriod(
 // Journal Entry + Lines
 export async function createJournalEntry(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -207,7 +211,7 @@ export async function createJournalEntry(
 
 export async function listJournalEntries(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { branch_id, period_id } = req.body as any;
@@ -218,10 +222,10 @@ export async function listJournalEntries(
     const entries = await journalEntryModel.findWithPagination(
       1,
       1000,
-      filters
+      filters,
     );
     reply.send(
-      successResponse(entries, "Journal entries retrieved successfully")
+      successResponse(entries, "Journal entries retrieved successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -229,7 +233,7 @@ export async function listJournalEntries(
 }
 export async function updateJournalEntry(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -240,7 +244,7 @@ export async function updateJournalEntry(
     // Update journal entry
     const updatedEntry = await journalEntryModel.update(
       parseInt(id),
-      entryData
+      entryData,
     );
 
     // If lines provided, delete old and insert new
@@ -260,7 +264,7 @@ export async function updateJournalEntry(
 
     await client.query("COMMIT");
     reply.send(
-      successResponse(updatedEntry, "Journal entry updated successfully")
+      successResponse(updatedEntry, "Journal entry updated successfully"),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -272,7 +276,7 @@ export async function updateJournalEntry(
 
 export async function deleteJournalEntry(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -284,7 +288,7 @@ export async function deleteJournalEntry(
 }
 export async function manualJournalTransaction(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { branch_id, period_id, entry_date, narration, lines } =
@@ -294,7 +298,7 @@ export async function manualJournalTransaction(
       rows: [period],
     } = await pool.query(
       "SELECT is_closed FROM accounting_period WHERE id = $1",
-      [period_id]
+      [period_id],
     );
 
     if (!period) {
@@ -315,7 +319,7 @@ export async function manualJournalTransaction(
     });
 
     reply.send(
-      successResponse(journal, "Manual journal entry created successfully")
+      successResponse(journal, "Manual journal entry created successfully"),
     );
   } catch (error: any) {
     reply.status(400).send({
@@ -351,7 +355,7 @@ export async function recordJournalTransaction({
 
   if (totalDebit !== totalCredit) {
     throw new Error(
-      `Unbalanced journal entry: Debit (${totalDebit}) != Credit (${totalCredit})`
+      `Unbalanced journal entry: Debit (${totalDebit}) != Credit (${totalCredit})`,
     );
   }
 
@@ -380,7 +384,7 @@ export async function recordJournalTransaction({
         source_module,
         source_id,
         narration,
-      ]
+      ],
     );
 
     // Insert journal lines
@@ -391,7 +395,7 @@ export async function recordJournalTransaction({
           (journal_entry_id, account_id, debit, credit)
         VALUES ($1, $2, $3, $4)
         `,
-        [journalEntry.id, line.account_id, line.debit, line.credit]
+        [journalEntry.id, line.account_id, line.debit, line.credit],
       );
     }
 
@@ -411,7 +415,7 @@ export async function recordJournalTransaction({
 
 export async function getJournalEntries(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const {
@@ -469,7 +473,7 @@ export async function getJournalEntries(
 
     const countResult = await pool.query(
       countQuery,
-      values.slice(0, conditions.length)
+      values.slice(0, conditions.length),
     );
     const totalRecords = parseInt(countResult.rows[0].total);
 
@@ -532,8 +536,8 @@ export async function getJournalEntries(
             totalPages: Math.ceil(totalRecords / limitNum),
           },
         },
-        "Journal entries retrieved successfully"
-      )
+        "Journal entries retrieved successfully",
+      ),
     );
   } catch (err: any) {
     console.error("Error fetching journal entries:", err);

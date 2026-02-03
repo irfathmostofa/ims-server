@@ -20,7 +20,7 @@ import pool from "../../config/db";
 // ========== Product Category ==========
 export async function createProductCat(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const fields = req.body as Record<string, any>;
@@ -32,7 +32,7 @@ export async function createProductCat(
     }
     const newData = await productCatModel.create(fields);
     reply.send(
-      successResponse(newData, "Product Category created successfully")
+      successResponse(newData, "Product Category created successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -71,7 +71,7 @@ export async function getProductCat(req: FastifyRequest, reply: FastifyReply) {
 
 export async function updateProductCat(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: number };
@@ -79,7 +79,7 @@ export async function updateProductCat(
     fields.updated_by = (req.user as { id: number }).id;
     const updated = await productCatModel.update(id, fields);
     reply.send(
-      successResponse(updated, "Product Category updated successfully")
+      successResponse(updated, "Product Category updated successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -88,13 +88,13 @@ export async function updateProductCat(
 
 export async function deleteProductCat(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
     const deleted = await productCatModel.delete(id);
     reply.send(
-      successResponse(deleted, "Product Category deleted successfully")
+      successResponse(deleted, "Product Category deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -108,7 +108,7 @@ export async function createUOM(req: FastifyRequest, reply: FastifyReply) {
     fields.created_by = (req.user as { id: number }).id;
     const newData = await UomModel.create(fields);
     reply.send(
-      successResponse(newData, "Unit Of masurement created successfully")
+      successResponse(newData, "Unit Of masurement created successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -131,7 +131,7 @@ export async function updateUOM(req: FastifyRequest, reply: FastifyReply) {
     fields.updated_by = (req.user as { id: number }).id;
     const updated = await UomModel.update(id, fields);
     reply.send(
-      successResponse(updated, "Unit Of masurement updated successfully")
+      successResponse(updated, "Unit Of masurement updated successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -143,7 +143,7 @@ export async function deleteUOM(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.body as { id: number };
     const deleted = await UomModel.delete(id);
     reply.send(
-      successResponse(deleted, "Unit Of masurement deleted successfully")
+      successResponse(deleted, "Unit Of masurement deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -252,7 +252,7 @@ export async function createProduct(req: FastifyRequest, reply: FastifyReply) {
 
 export async function bulkCreateProducts(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -317,6 +317,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
           p.id,
           p.code,
           p.name,
+           p.slug,
           p.description,
           p.cost_price,
           p.selling_price,
@@ -402,6 +403,7 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
         fp.id,
         fp.code,
         fp.name,
+        fp.slug,
         fp.description,
         fp.cost_price,
         fp.selling_price,
@@ -549,8 +551,8 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
             hasPrevPage: pageNum > 1,
           },
         },
-        "Products retrieved successfully"
-      )
+        "Products retrieved successfully",
+      ),
     );
   } catch (err: any) {
     console.error("Error in getAllProducts:", err);
@@ -705,6 +707,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
         p.id,
         p.code,
         p.name,
+        p.slug,
         p.description,
         p.cost_price,
         p.selling_price,
@@ -839,7 +842,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
 }
 export async function getProductBySlug(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { slug } = req.params as { slug: string };
@@ -848,6 +851,7 @@ export async function getProductBySlug(
       SELECT 
         p.id,
         p.code,
+        p.slug,
         p.name,
         p.description,
         p.cost_price,
@@ -983,7 +987,7 @@ export async function getProductBySlug(
 }
 export async function getProductsByCategorySlug(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { slug } = req.params as { slug: string };
@@ -1132,7 +1136,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
       const updatedProduct = await productModel.update(
         parseInt(id),
         productFields,
-        client
+        client,
       );
       if (!updatedProduct) {
         await client.query("ROLLBACK");
@@ -1147,7 +1151,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
       // Delete existing categories
       await client.query(
         "DELETE FROM product_categories WHERE product_id = $1",
-        [id]
+        [id],
       );
 
       // Insert new categories
@@ -1159,7 +1163,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
             is_primary: cat.is_primary || false,
             created_by: userId,
           },
-          client
+          client,
         );
       }
     }
@@ -1176,7 +1180,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
           const updatedVariant = await productVariantModel.update(
             variant.id,
             variantData,
-            client
+            client,
           );
           variantId = variant.id;
         } else {
@@ -1188,13 +1192,13 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
 
           const newVariant = await productVariantModel.create(
             variantData,
-            client
+            client,
           );
           variantId = newVariant.id;
 
           // Auto-generate barcode for new variant
           const generatedBarcode = await generateRandomBarcode(
-            variantData.code
+            variantData.code,
           );
           await productBarcodeModel.create(
             {
@@ -1205,7 +1209,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
               status: "A",
               created_by: userId,
             },
-            client
+            client,
           );
         }
 
@@ -1214,7 +1218,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
           // Get existing image IDs for this variant
           const existingImagesResult = await client.query(
             "SELECT id FROM product_image WHERE product_variant_id = $1",
-            [variantId]
+            [variantId],
           );
           const existingImageIds = existingImagesResult.rows.map((r) => r.id);
           const updatedImageIds: number[] = [];
@@ -1228,7 +1232,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
               if (image.is_primary) {
                 await client.query(
                   "UPDATE product_image SET is_primary = FALSE WHERE product_variant_id = $1 AND id != $2",
-                  [variantId, image.id]
+                  [variantId, image.id],
                 );
               }
 
@@ -1253,7 +1257,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
               };
               const createdImage = await productImageModel.create(
                 newImage,
-                client
+                client,
               );
               updatedImageIds.push(createdImage.id);
             }
@@ -1261,7 +1265,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
 
           // Delete images that were removed (not in the update list)
           const imagesToDelete = existingImageIds.filter(
-            (id) => !updatedImageIds.includes(id)
+            (id) => !updatedImageIds.includes(id),
           );
           if (imagesToDelete.length > 0) {
             await client.query("DELETE FROM product_image WHERE id = ANY($1)", [
@@ -1275,10 +1279,10 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
           // Get existing barcode IDs for this variant
           const existingBarcodesResult = await client.query(
             "SELECT id FROM product_barcode WHERE product_variant_id = $1",
-            [variantId]
+            [variantId],
           );
           const existingBarcodeIds = existingBarcodesResult.rows.map(
-            (r) => r.id
+            (r) => r.id,
           );
           const updatedBarcodeIds: number[] = [];
 
@@ -1291,7 +1295,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
               if (barcode.is_primary) {
                 await client.query(
                   "UPDATE product_barcode SET is_primary = FALSE WHERE product_variant_id = $1 AND id != $2",
-                  [variantId, barcode.id]
+                  [variantId, barcode.id],
                 );
               }
 
@@ -1305,7 +1309,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
               await productBarcodeModel.update(
                 barcode.id,
                 barcodeUpdate,
-                client
+                client,
               );
             } else {
               // Create new barcode
@@ -1319,7 +1323,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
               };
               const createdBarcode = await productBarcodeModel.create(
                 newBarcode,
-                client
+                client,
               );
               updatedBarcodeIds.push(createdBarcode.id);
             }
@@ -1327,12 +1331,12 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
 
           // Delete barcodes that were removed (not in the update list)
           const barcodesToDelete = existingBarcodeIds.filter(
-            (id) => !updatedBarcodeIds.includes(id)
+            (id) => !updatedBarcodeIds.includes(id),
           );
           if (barcodesToDelete.length > 0) {
             await client.query(
               "DELETE FROM product_barcode WHERE id = ANY($1)",
-              [barcodesToDelete]
+              [barcodesToDelete],
             );
           }
         }
@@ -1347,7 +1351,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
           `DELETE FROM product_variant 
            WHERE product_id = $1 
            AND id != ALL($2)`,
-          [id, variantIds]
+          [id, variantIds],
         );
       }
     }
@@ -1360,7 +1364,7 @@ export async function updateProduct(req: FastifyRequest, reply: FastifyReply) {
     ]);
 
     return reply.send(
-      successResponse(result.rows[0], "Product updated successfully")
+      successResponse(result.rows[0], "Product updated successfully"),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -1393,7 +1397,7 @@ export async function deleteProduct(req: FastifyRequest, reply: FastifyReply) {
 
 export async function createProductVariant(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const fields = req.body as Record<string, any>;
@@ -1404,7 +1408,7 @@ export async function createProductVariant(
     const newVariant = await productVariantModel.create(fields);
 
     reply.send(
-      successResponse(newVariant, "Product variant created successfully")
+      successResponse(newVariant, "Product variant created successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1413,14 +1417,14 @@ export async function createProductVariant(
 
 export async function getProductVariants(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { product_id } = req.params as { product_id: string };
 
     const variants = await productVariantModel.findByField(
       "product_id",
-      product_id
+      product_id,
     );
 
     // Get barcodes for each variant
@@ -1428,17 +1432,17 @@ export async function getProductVariants(
       variants.map(async (variant: any) => {
         const barcodes = await productBarcodeModel.findByField(
           "product_variant_id",
-          variant.id
+          variant.id,
         );
         return { ...variant, barcodes };
-      })
+      }),
     );
 
     reply.send(
       successResponse(
         variantsWithBarcodes,
-        "Product variants retrieved successfully"
-      )
+        "Product variants retrieved successfully",
+      ),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1447,7 +1451,7 @@ export async function getProductVariants(
 
 export async function updateProductVariant(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -1455,7 +1459,7 @@ export async function updateProductVariant(
 
     const updatedVariant = await productVariantModel.update(
       parseInt(id),
-      fields
+      fields,
     );
 
     if (!updatedVariant) {
@@ -1465,7 +1469,7 @@ export async function updateProductVariant(
     }
 
     reply.send(
-      successResponse(updatedVariant, "Product variant updated successfully")
+      successResponse(updatedVariant, "Product variant updated successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1474,7 +1478,7 @@ export async function updateProductVariant(
 
 export async function deleteProductVariant(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: string };
@@ -1488,7 +1492,7 @@ export async function deleteProductVariant(
     }
 
     reply.send(
-      successResponse(deletedVariant, "Product variant deleted successfully")
+      successResponse(deletedVariant, "Product variant deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1499,7 +1503,7 @@ export async function deleteProductVariant(
 
 export async function addProductImage(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const fields = req.body as Record<string, any>;
@@ -1511,7 +1515,7 @@ export async function addProductImage(
     if (fields.is_primary) {
       await pool.query(
         "UPDATE product_image SET is_primary = FALSE WHERE product_id = $1",
-        [fields.product_id]
+        [fields.product_id],
       );
     }
 
@@ -1525,18 +1529,18 @@ export async function addProductImage(
 
 export async function getProductImages(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { product_id } = req.params as { product_id: string };
 
     const images = await productImageModel.findByField(
       "product_id",
-      product_id
+      product_id,
     );
 
     reply.send(
-      successResponse(images, "Product images retrieved successfully")
+      successResponse(images, "Product images retrieved successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1545,7 +1549,7 @@ export async function getProductImages(
 
 export async function updateProductImage(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -1557,7 +1561,7 @@ export async function updateProductImage(
       if (currentImage) {
         await pool.query(
           "UPDATE product_image SET is_primary = FALSE WHERE product_id = $1 AND id != $2",
-          [currentImage.product_id, id]
+          [currentImage.product_id, id],
         );
       }
     }
@@ -1571,7 +1575,7 @@ export async function updateProductImage(
     }
 
     reply.send(
-      successResponse(updatedImage, "Product image updated successfully")
+      successResponse(updatedImage, "Product image updated successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1580,7 +1584,7 @@ export async function updateProductImage(
 
 export async function deleteProductImage(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: string };
@@ -1594,7 +1598,7 @@ export async function deleteProductImage(
     }
 
     reply.send(
-      successResponse(deletedImage, "Product image deleted successfully")
+      successResponse(deletedImage, "Product image deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1605,7 +1609,7 @@ export async function deleteProductImage(
 
 export async function addProductBarcode(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const fields = req.body as Record<string, any>;
@@ -1614,14 +1618,14 @@ export async function addProductBarcode(
     if (fields.is_primary) {
       await pool.query(
         "UPDATE product_barcode SET is_primary = FALSE WHERE product_variant_id = $1",
-        [fields.product_variant_id]
+        [fields.product_variant_id],
       );
     }
 
     const newBarcode = await productBarcodeModel.create(fields);
 
     reply.send(
-      successResponse(newBarcode, "Product barcode added successfully")
+      successResponse(newBarcode, "Product barcode added successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1630,18 +1634,18 @@ export async function addProductBarcode(
 
 export async function getProductBarcodes(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { variant_id } = req.params as { variant_id: string };
 
     const barcodes = await productBarcodeModel.findByField(
       "product_variant_id",
-      variant_id
+      variant_id,
     );
 
     reply.send(
-      successResponse(barcodes, "Product barcodes retrieved successfully")
+      successResponse(barcodes, "Product barcodes retrieved successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1650,7 +1654,7 @@ export async function getProductBarcodes(
 
 export async function updateProductBarcode(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -1662,14 +1666,14 @@ export async function updateProductBarcode(
       if (currentBarcode) {
         await pool.query(
           "UPDATE product_barcode SET is_primary = FALSE WHERE product_variant_id = $1 AND id != $2",
-          [currentBarcode.product_variant_id, id]
+          [currentBarcode.product_variant_id, id],
         );
       }
     }
 
     const updatedBarcode = await productBarcodeModel.update(
       parseInt(id),
-      fields
+      fields,
     );
 
     if (!updatedBarcode) {
@@ -1679,7 +1683,7 @@ export async function updateProductBarcode(
     }
 
     reply.send(
-      successResponse(updatedBarcode, "Product barcode updated successfully")
+      successResponse(updatedBarcode, "Product barcode updated successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1688,7 +1692,7 @@ export async function updateProductBarcode(
 
 export async function deleteProductBarcode(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
@@ -1702,7 +1706,7 @@ export async function deleteProductBarcode(
     }
 
     reply.send(
-      successResponse(deletedBarcode, "Product barcode deleted successfully")
+      successResponse(deletedBarcode, "Product barcode deleted successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -1994,7 +1998,7 @@ export async function searchProducts(req: FastifyRequest, reply: FastifyReply) {
         product.regular_price > 0
           ? Math.round(
               ((product.regular_price - product.selling_price) * 100) /
-                product.regular_price
+                product.regular_price,
             )
           : 0,
     }));
@@ -2012,8 +2016,8 @@ export async function searchProducts(req: FastifyRequest, reply: FastifyReply) {
             nextPage: hasMore ? pageNum + 1 : null,
           },
         },
-        "Products retrieved successfully"
-      )
+        "Products retrieved successfully",
+      ),
     );
   } catch (err: any) {
     console.error("Search products error:", err);
@@ -2023,7 +2027,7 @@ export async function searchProducts(req: FastifyRequest, reply: FastifyReply) {
 
 export async function findProductByBarcode(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { barcode } = req.params as { barcode: string };
@@ -2062,7 +2066,7 @@ export async function findProductByBarcode(
 
 export async function createProductReview(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const fields = req.body as Record<string, any>;
@@ -2075,7 +2079,7 @@ export async function createProductReview(
 
 export async function getProductReviews(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { product_id } = req.body as { product_id: string };
@@ -2088,7 +2092,7 @@ export async function getProductReviews(
 
 export async function updateProductReview(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
@@ -2101,7 +2105,7 @@ export async function updateProductReview(
 }
 export async function deleteProductReview(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
