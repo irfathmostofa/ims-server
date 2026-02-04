@@ -101,13 +101,11 @@ export default async function productRoutes(app: FastifyInstance) {
     deleteProduct
   );
 
-  // ===== PRODUCT VARIANT ROUTES =====
   app.post("/products/:product_id/variants", createProductVariant);
   app.get("/products/:product_id/variants", getProductVariants);
   app.post("/update-variants/:id", updateProductVariant);
   app.post("/delete-variants/:id", deleteProductVariant);
 
-  // ===== PRODUCT IMAGE ROUTES =====
   app.post("/products/:product_id/images", addProductImage);
   app.get("/products/:product_id/images", getProductImages);
   app.post("/update-images/:id", updateProductImage);
