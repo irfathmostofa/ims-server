@@ -201,11 +201,15 @@ CREATE TABLE goods_received_note (
     code VARCHAR(20) UNIQUE,
     received_date DATE DEFAULT CURRENT_DATE,
     received_by INT REFERENCES users(id),
-    status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+    status VARCHAR(20) DEFAULT 'Pending' CHECK (status IN ('Pending','Partially','Received','Completed','Cancelled')),
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+
+
+
+Cancelled
 CREATE TABLE grn_items (
     id SERIAL PRIMARY KEY,
     grn_id INT REFERENCES goods_received_note(id) ON DELETE CASCADE,

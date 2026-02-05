@@ -330,7 +330,11 @@ export async function getAllOrders(
         c.phone AS customer_phone,
         dm.name AS delivery_method_name,
         pm.name AS payment_method_name,
-        ca.*,
+        ca.label,
+        ca.address_line,
+        ca.city,
+        ca.area,
+        ca.postal_code,
         (
           SELECT json_agg(
             json_build_object(
@@ -401,7 +405,6 @@ export async function updateOrderStatus(
     }
 
     const order = await orderOnlineModel.update(orderId, updateData);
-
     reply.send({
       success: true,
       data: order,
