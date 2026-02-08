@@ -10,7 +10,8 @@ export async function CreateMarketingMessages(
 ) {
   try {
     const fields = req.body as Record<string, any>;
-
+    const userId = (req.user as any)?.id;
+    fields.created_by = userId;
     fields.code = await generatePrefixedId("marketing_messages", "MS");
     const newData = await marketingMsgModel.create(fields);
     reply.send(
