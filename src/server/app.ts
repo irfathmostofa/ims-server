@@ -18,6 +18,7 @@ import { CouponRoutes } from "../modules/coupon/coupon.routes";
 import { accountRoutes } from "../modules/accounts/accounts.routes";
 import paymentRoute from "../modules/payment/payment.routes";
 import { themeRoutes } from "../modules/template/theme.routes";
+import marketingRoutes from "../modules/marketing/marketing.routes";
 
 dotenv.config();
 
@@ -58,4 +59,5 @@ app.register(themeRoutes, { prefix: "/theme" });
 app.register(orderRoutes, { prefix: "/order" });
 app.register(CouponRoutes, { prefix: "/coupon" });
 app.register(paymentRoute, { prefix: "/payments" });
+app.register(marketingRoutes, { prefix: "/marketing" });
 export default app;

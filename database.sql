@@ -816,3 +816,28 @@ CREATE TABLE seo_sitemap (
     change_freq VARCHAR(20), -- daily, weekly
     last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- marketing_messages table
+CREATE TABLE marketing_messages (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(20) NOT NULL UNIQUE,
+  campaign_name VARCHAR(200) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  template_name VARCHAR(100),
+  status VARCHAR(20) DEFAULT 'draft',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_by INT NOT NULL REFERENCES users(id),
+);
+
+CREATE TABLE message_history (
+  id SERIAL PRIMARY KEY,
+  message_id INTEGER REFERENCES marketing_messages(id) ON DELETE CASCADE,
+  party_id INT REFERENCES party(id), 
+  recipient_phone VARCHAR(20) NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending', 
+  delivery_status VARCHAR(50), 
+  whatsapp_message_id VARCHAR(255),
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+);
+
