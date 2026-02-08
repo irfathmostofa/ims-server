@@ -396,7 +396,7 @@ CREATE TABLE activity_log (
 );
 CREATE TABLE setup_data (
     id SERIAL PRIMARY KEY,
-    setup_code VARCHAR(20) UNIQUE,     
+    code VARCHAR(20) UNIQUE,     
     group_name VARCHAR(50),      
     key_name VARCHAR(100) NOT NULL,   
     value JSONB NOT NULL,    

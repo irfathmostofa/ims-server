@@ -7,6 +7,7 @@ import { customerModel } from "../users/user.model";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 import { EmailService } from "../../core/services/emailService";
 import OTPStore from "../../core/utils/otpStore";
+import { setupDataModel } from "../setup/setup.model";
 interface SendOTPBody {
   email: string;
   name?: string;
@@ -184,7 +185,7 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
 
     if (cachedProfile) {
       return reply.send(
-        successResponse(cachedProfile, "User profile fetched from cache")
+        successResponse(cachedProfile, "User profile fetched from cache"),
       );
     }
 
@@ -235,7 +236,7 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
     `;
 
     const { rows } = await pool.query(profileQuery, [userId]);
-
+    const setupData = await setupDataModel.findAll();
     if (rows.length === 0) {
       return reply.code(404).send({
         success: false,
@@ -284,15 +285,19 @@ export async function profile(req: FastifyRequest, reply: FastifyReply) {
         name: u.role_name,
         description: u.role_description,
       },
+      config: setupData,
     };
 
     // Cache the result
     profileCache.set(cacheKey, organized);
 
     // Clear cache after 5 minutes
-    setTimeout(() => {
-      profileCache.delete(cacheKey);
-    }, 5 * 60 * 1000);
+    setTimeout(
+      () => {
+        profileCache.delete(cacheKey);
+      },
+      5 * 60 * 1000,
+    );
 
     reply.send(successResponse(organized, "User profile fetched successfully"));
   } catch (err: any) {
@@ -328,7 +333,7 @@ export async function loginCustomer(req: FastifyRequest, reply: FastifyReply) {
 }
 export async function getCustomerProfile(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const id = (req.user as any)?.id;
@@ -357,7 +362,7 @@ export async function googleCallback(req: FastifyRequest, reply: FastifyReply) {
 
     // 2️⃣ Get Google user info
     const googleUser = await fetch(
-      `https://www.googleapis.com/oauth2/v2/userinfo?access_token=${tokenResponse.access_token}`
+      `https://www.googleapis.com/oauth2/v2/userinfo?access_token=${tokenResponse.access_token}`,
     ).then((res) => res.json());
 
     if (!googleUser.email) {
@@ -398,7 +403,7 @@ export async function googleCallback(req: FastifyRequest, reply: FastifyReply) {
 // Send OTP
 export async function sendOTP(
   req: FastifyRequest<{ Body: SendOTPBody }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { email, name, type } = req.body;
@@ -441,7 +446,7 @@ export async function sendOTP(
 // Verify OTP
 export async function verifyOTP(
   req: FastifyRequest<{ Body: VerifyOTPBody }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { email, otp } = req.body;
@@ -480,7 +485,7 @@ export async function verifyOTP(
 // Resend OTP
 export async function resendOTP(
   req: FastifyRequest<{ Body: { email: string; name?: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { email, name } = req.body;

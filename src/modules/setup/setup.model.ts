@@ -20,8 +20,8 @@ export const roleModel = new CrudModel(
 export const setupDataModel = new CrudModel(
   "setup_data",
   ["key_name", "value"],
-  ["setup_code"],
-  ["setup_code", "group_name", "status", "created_by", "updated_by"],
+  ["code"],
+  ["code", "group_name", "status", "created_by", "updated_by"],
 );
 export const deliveryMethodModel = new CrudModel(
   "delivery_method",
