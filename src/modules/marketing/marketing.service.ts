@@ -34,8 +34,7 @@ export class HistoryService {
         UPDATE message_history 
         SET status = $1, 
             delivery_status = 'sent',
-            whatsapp_message_id = $2,
-            sent_at = CURRENT_TIMESTAMP 
+            whatsapp_message_id = $2
         WHERE id = $3
       `;
       params = [status, whatsappMessageId, historyId];

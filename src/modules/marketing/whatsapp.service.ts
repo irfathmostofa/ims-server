@@ -84,10 +84,9 @@ export async function sendWhatsAppMessage(
             body: JSON.stringify({
               messaging_product: "whatsapp",
               to: 88 + recipient,
-              type: "template",
-              template: {
-                name: marketingMessage.template_name || marketingMessage.code,
-                language: { code: "en_US" },
+              type: "text",
+              text: {
+                body: marketingMessage.content,
               },
             }),
           },
