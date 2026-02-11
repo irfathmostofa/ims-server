@@ -121,6 +121,8 @@ export async function createAccountingPeriod(
 ) {
   try {
     const data = req.body as any;
+    const userId = (req.user as any)?.id;
+    data.created_by = userId;
     const period = await accountingPeriodModel.create(data);
     reply.send(
       successResponse(period, "Accounting period created successfully"),
@@ -150,6 +152,8 @@ export async function updateAccountingPeriod(
   try {
     const { id } = req.params as { id: string };
     const data = req.body as any;
+    const userId = (req.user as any)?.id;
+    data.updated_by = userId;
     const updated = await accountingPeriodModel.update(parseInt(id), data);
     reply.send(
       successResponse(updated, "Accounting period updated successfully"),
@@ -185,6 +189,8 @@ export async function createJournalEntry(
 
     const { lines, ...entryData } = req.body as any;
     entryData.code = await generatePrefixedId("journal_entry", "JE");
+    const userId = (req.user as any)?.id;
+    entryData.created_by = userId;
     // Create journal entry
     const entry = await journalEntryModel.create(entryData);
 
@@ -240,7 +246,8 @@ export async function updateJournalEntry(
     await client.query("BEGIN");
     const { id } = req.params as { id: string };
     const { lines, ...entryData } = req.body as any;
-
+    const userId = (req.user as any)?.id;
+    entryData.updated_by = userId;
     // Update journal entry
     const updatedEntry = await journalEntryModel.update(
       parseInt(id),

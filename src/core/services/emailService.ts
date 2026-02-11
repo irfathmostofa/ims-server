@@ -1,4 +1,5 @@
 import { transporter } from "../../config/email.config";
+import smsService from "../../config/sms.config";
 import { emailTemplates } from "../utils/emailTemplates";
 
 export class EmailService {
@@ -10,14 +11,15 @@ export class EmailService {
   // Send OTP Email
   static async sendOTP(
     email: string,
-    userName: string = "User"
+    phone: string,
+    userName: string = "User",
   ): Promise<{ success: boolean; otp?: string; error?: string }> {
     try {
       const otp = this.generateOTP();
       const template = emailTemplates.otpEmail(otp, userName);
-
+      await smsService.sendOTP(phone, otp);
       await transporter.sendMail({
-        from: `"RasianMart" <${process.env.SMTP_USER}>`,
+        from: `"UniStock Pro" <${process.env.SMTP_USER}>`,
         to: email,
         subject: template.subject,
         html: template.html,
@@ -32,13 +34,13 @@ export class EmailService {
   // Send Welcome Email
   static async sendWelcomeEmail(
     email: string,
-    userName: string
+    userName: string,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const template = emailTemplates.welcomeEmail(userName, email);
 
       await transporter.sendMail({
-        from: `"RasianMart" <${process.env.SMTP_USER}>`,
+        from: `"UniStock Pro" <${process.env.SMTP_USER}>`,
         to: email,
         subject: template.subject,
         html: template.html,
@@ -52,13 +54,13 @@ export class EmailService {
   // Send Password Reset Success Email
   static async sendPasswordResetSuccess(
     email: string,
-    userName: string
+    userName: string,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const template = emailTemplates.passwordResetSuccess(userName);
 
       await transporter.sendMail({
-        from: `"RasianMart" <${process.env.SMTP_USER}>`,
+        from: `"UniStock Pro" <${process.env.SMTP_USER}>`,
         to: email,
         subject: template.subject,
         html: template.html,

@@ -166,14 +166,6 @@ export async function initiatePayment(
       });
     }
 
-    // Save transaction to your database (implement your own logic)
-    console.log("Saving transaction:", {
-      orderId,
-      tranId,
-      amount,
-      customerEmail,
-      status: "PENDING",
-    });
 
     // Return payment URL to redirect user
     return reply.send({
@@ -200,7 +192,6 @@ export async function callback(req: FastifyRequest, reply: FastifyReply) {
     const { type, tran_id } = req.query as { type: string; tran_id: string };
     const body = req.body as CallbackBody;
 
-    console.log("Callback received:", { type, tran_id });
 
     // Handle different callback types
     switch (type) {

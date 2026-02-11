@@ -8,14 +8,17 @@ import { generatePrefixedId } from "../../core/models/idGenerator";
 import { EmailService } from "../../core/services/emailService";
 import OTPStore from "../../core/utils/otpStore";
 import { setupDataModel } from "../setup/setup.model";
+import smsService from "../../config/sms.config";
 interface SendOTPBody {
   email: string;
+  phone: string;
   name?: string;
   type: "signup" | "forgot";
 }
 
 interface VerifyOTPBody {
   email: string;
+  phone: string;
   otp: string;
 }
 
@@ -406,7 +409,7 @@ export async function sendOTP(
   reply: FastifyReply,
 ) {
   try {
-    const { email, name, type } = req.body;
+    const { email, phone, name, type } = req.body;
 
     if (!email) {
       return reply.code(400).send({
@@ -416,7 +419,7 @@ export async function sendOTP(
     }
 
     // Send OTP email
-    const result = await EmailService.sendOTP(email, name);
+    const result = await EmailService.sendOTP(email, phone, name);
     if (!result.success) {
       return reply.code(500).send({
         success: false,
@@ -484,11 +487,13 @@ export async function verifyOTP(
 
 // Resend OTP
 export async function resendOTP(
-  req: FastifyRequest<{ Body: { email: string; name?: string } }>,
+  req: FastifyRequest<{
+    Body: { email: string; phone: string; name?: string };
+  }>,
   reply: FastifyReply,
 ) {
   try {
-    const { email, name } = req.body;
+    const { email, phone, name } = req.body;
 
     if (!email) {
       return reply.code(400).send({
@@ -497,7 +502,7 @@ export async function resendOTP(
       });
     }
 
-    const result = await EmailService.sendOTP(email, name);
+    const result = await EmailService.sendOTP(email, phone, name);
 
     if (!result.success) {
       return reply.code(500).send({
