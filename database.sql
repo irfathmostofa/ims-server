@@ -340,12 +340,12 @@ CREATE TABLE account (
     name VARCHAR(100) NOT NULL,
     account_no VARCHAR(50),
     opening_balance NUMERIC(14,2) DEFAULT 0,
-    opening_balance_type VARCHAR(2) CHECK (opening_balance_type IN ('DR','CR')),
+    opening_balance_type VARCHAR(5) CHECK (opening_balance_type IN ('DEBIT','CREDIT')),
     status CHAR(1) DEFAULT 'A',
     created_by INT NOT NULL REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE accounting_period (

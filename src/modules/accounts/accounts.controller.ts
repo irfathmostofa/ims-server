@@ -71,6 +71,8 @@ export async function deleteAccountHead(
 export async function createAccount(req: FastifyRequest, reply: FastifyReply) {
   try {
     const data = req.body as any;
+    const userId = (req.user as any)?.id;
+    data.created_by = userId;
     data.code = await generatePrefixedId("account", "AC");
     const account = await accountModel.create(data);
     reply.send(successResponse(account, "Account created successfully"));
@@ -95,7 +97,10 @@ export async function listAccounts(req: FastifyRequest, reply: FastifyReply) {
 export async function updateAccount(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = req.params as { id: string };
+    const userId = (req.user as any)?.id;
+
     const data = req.body as any;
+    data.updated_by = userId;
     const updated = await accountModel.update(parseInt(id), data);
     reply.send(successResponse(updated, "Account updated successfully"));
   } catch (err: any) {
