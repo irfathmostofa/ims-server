@@ -626,7 +626,7 @@ export async function getGroupedSetupData(
         json_agg(
           json_build_object(
             'id', id,
-            'setup_code', setup_code,
+            'code', code,
             'key_name', key_name,
             'value', value,
             'status', status
