@@ -17,6 +17,7 @@ import {
   deleteUOM,
   findProductByBarcode,
   getAllProducts,
+  getAllProductsCategory,
   getProductBarcodes,
   getProductById,
   getProductBySlug,
@@ -84,6 +85,7 @@ export default async function productRoutes(app: FastifyInstance) {
   );
 
   app.post("/get-all-products", getAllProducts);
+  app.post("/get-all-products-with-cat", getAllProductsCategory);
   app.post("/get-pos-products", getProductsPOS);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);

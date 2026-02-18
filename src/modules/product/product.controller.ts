@@ -563,7 +563,366 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
     });
   }
 }
+export async function getAllProductsCategory(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { 
+      page, 
+      limit, 
+      status, 
+      price_min, 
+      price_max, 
+      category_ids, 
+      category_match_type,
+      search 
+    } = req.body as {
+      page?: number;
+      limit?: number;
+      status?: string;
+      category_ids?: number[];
+      category_match_type?: 'ANY' | 'ALL'; // ANY: product in any category, ALL: product in all categories
+      search?: string;
+      price_min?: number;
+      price_max?: number;
+    };
 
+    // Validate price range if both are provided
+    if (
+      price_min !== undefined &&
+      price_max !== undefined &&
+      price_min > price_max
+    ) {
+      return reply.status(400).send({
+        success: false,
+        message: "price_min cannot be greater than price_max",
+      });
+    }
+
+    // Validate category_ids if provided
+    if (category_ids && !Array.isArray(category_ids)) {
+      return reply.status(400).send({
+        success: false,
+        message: "category_ids must be an array",
+      });
+    }
+
+    // Remove duplicates from category_ids
+    const uniqueCategoryIds = category_ids 
+      ? [...new Set(category_ids)].filter(id => !isNaN(id) && id > 0)
+      : [];
+
+    // Validate category_match_type
+    const matchType = category_match_type || 'ANY';
+    if (!['ANY', 'ALL'].includes(matchType)) {
+      return reply.status(400).send({
+        success: false,
+        message: "category_match_type must be either 'ANY' or 'ALL'",
+      });
+    }
+
+    const pageNum = Math.max(1, page || 1);
+    const limitNum = Math.max(1, Math.min(limit || 10, 100));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Main query with CTE for better performance
+    let query = `
+      WITH product_aggregates AS (
+        SELECT 
+          p.id,
+          p.code,
+          p.name,
+          p.slug,
+          p.description,
+          p.cost_price,
+          p.selling_price,
+          p.regular_price,
+          p.status,
+          p.uom_id,
+          p.created_at,
+          COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock,
+          COALESCE(SUM(oio.subtotal), 0) AS total_sales,
+          ARRAY_AGG(DISTINCT pc.category_id) FILTER (WHERE pc.category_id IS NOT NULL) AS category_ids
+        FROM product p
+        LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
+        LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
+        LEFT JOIN order_item_online oio ON pv.id = oio.product_variant_id
+        LEFT JOIN product_categories pc ON p.id = pc.product_id
+        WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    // Status filter
+    if (status && status !== "") {
+      query += ` AND p.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    // Price filters
+    if (price_min !== undefined) {
+      query += ` AND p.selling_price >= $${paramIndex}`;
+      params.push(price_min);
+      paramIndex++;
+    }
+
+    if (price_max !== undefined) {
+      query += ` AND p.selling_price <= $${paramIndex}`;
+      params.push(price_max);
+      paramIndex++;
+    }
+
+    // Category filter - handle multiple category IDs
+    if (uniqueCategoryIds.length > 0) {
+      if (matchType === 'ALL') {
+        // Product must be in ALL specified categories
+        query += ` AND NOT EXISTS (
+          SELECT 1
+          FROM unnest($${paramIndex}::int[]) required_cat_id
+          WHERE NOT EXISTS (
+            SELECT 1 
+            FROM product_categories pc2 
+            WHERE pc2.product_id = p.id 
+            AND pc2.category_id = required_cat_id
+          )
+        )`;
+        params.push(uniqueCategoryIds);
+        paramIndex++;
+      } else {
+        // Product must be in ANY of the specified categories (default)
+        query += ` AND EXISTS (
+          SELECT 1 
+          FROM product_categories pc2 
+          WHERE pc2.product_id = p.id 
+          AND pc2.category_id = ANY($${paramIndex}::int[])
+        )`;
+        params.push(uniqueCategoryIds);
+        paramIndex++;
+      }
+    }
+
+    // Search filter
+    if (search && search !== "") {
+      query += ` AND (
+        p.name ILIKE $${paramIndex} 
+        OR p.description ILIKE $${paramIndex}
+        OR p.code ILIKE $${paramIndex}
+      )`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    query += `
+        GROUP BY p.id, p.code, p.name, p.slug, p.description, 
+                 p.cost_price, p.selling_price, p.regular_price, 
+                 p.status, p.uom_id, p.created_at
+      ),
+      filtered_products AS (
+        SELECT *
+        FROM product_aggregates
+        WHERE 1=1
+    `;
+
+    // Additional filtering for category_ids if needed
+    if (uniqueCategoryIds.length > 0 && matchType === 'ALL') {
+      // This is already handled in the CTE for ALL case, but we can add a safeguard
+      query += ` AND category_ids IS NOT NULL`;
+    }
+
+    query += `
+      )
+      SELECT 
+        fp.id,
+        fp.code,
+        fp.name,
+        fp.slug,
+        fp.description,
+        fp.cost_price,
+        fp.selling_price,
+        fp.regular_price,
+        fp.status,
+        u.name AS uom_name,
+        COALESCE(pi.images, '[]'::json) AS images,
+        COALESCE(cat.categories, '[]'::json) AS categories,
+        fp.total_stock,
+        CASE 
+          WHEN fp.created_at >= NOW() - INTERVAL '10 days' THEN 'New'
+          ELSE NULL
+        END AS badge,
+        COALESCE(r.rating, 0) AS rating,
+        COALESCE(r.review_count, 0) AS review_count,
+        fp.total_sales,
+        pv.primary_variant_id
+      FROM filtered_products fp
+      LEFT JOIN uom u ON fp.uom_id = u.id
+      LEFT JOIN (
+        SELECT DISTINCT ON (product_id)
+          product_id,
+          id AS primary_variant_id
+        FROM product_variant
+        WHERE status = 'A'
+        ORDER BY product_id, id ASC
+      ) pv ON fp.id = pv.product_id
+      LEFT JOIN (
+        SELECT 
+          pv.product_id,
+          json_agg(
+            json_build_object(
+              'id', pi.id,
+              'url', pi.url,
+              'alt_text', pi.alt_text,
+              'is_primary', pi.is_primary,
+              'variant_id', pi.product_variant_id
+            ) ORDER BY pi.is_primary DESC, pi.id
+          ) AS images
+        FROM product_image pi
+        JOIN product_variant pv ON pi.product_variant_id = pv.id
+        WHERE pi.status = 'A' AND pv.status = 'A'
+        GROUP BY pv.product_id
+      ) pi ON fp.id = pi.product_id
+      LEFT JOIN (
+        SELECT 
+          pc.product_id,
+          json_agg(
+            json_build_object(
+              'id', c.id,
+              'name', c.name,
+              'slug', c.slug,
+              'code', c.code,
+              'image', c.image,
+              'is_primary', pc.is_primary
+            ) ORDER BY pc.is_primary DESC, c.id
+          ) AS categories
+        FROM product_categories pc
+        JOIN category c ON pc.category_id = c.id
+        WHERE c.status = 'A'
+        GROUP BY pc.product_id
+      ) cat ON fp.id = cat.product_id
+      LEFT JOIN (
+        SELECT 
+          product_id,
+          ROUND(COALESCE(AVG(rating), 0)::NUMERIC, 1) AS rating,
+          COUNT(DISTINCT id) AS review_count
+        FROM product_review
+        GROUP BY product_id
+      ) r ON fp.id = r.product_id
+      ORDER BY fp.id DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    params.push(limitNum, offset);
+
+    // Count query for pagination
+    let countQuery = `
+      SELECT COUNT(DISTINCT p.id) AS total
+      FROM product p
+      WHERE 1=1
+    `;
+
+    const countParams: any[] = [];
+    let countParamIndex = 1;
+
+    // Apply same filters to count query
+    if (status && status !== "") {
+      countQuery += ` AND p.status = $${countParamIndex}`;
+      countParams.push(status);
+      countParamIndex++;
+    }
+
+    if (price_min !== undefined) {
+      countQuery += ` AND p.selling_price >= $${countParamIndex}`;
+      countParams.push(price_min);
+      countParamIndex++;
+    }
+
+    if (price_max !== undefined) {
+      countQuery += ` AND p.selling_price <= $${countParamIndex}`;
+      countParams.push(price_max);
+      countParamIndex++;
+    }
+
+    // Category filter for count query
+    if (uniqueCategoryIds.length > 0) {
+      if (matchType === 'ALL') {
+        countQuery += ` AND NOT EXISTS (
+          SELECT 1
+          FROM unnest($${countParamIndex}::int[]) required_cat_id
+          WHERE NOT EXISTS (
+            SELECT 1 
+            FROM product_categories pc2 
+            WHERE pc2.product_id = p.id 
+            AND pc2.category_id = required_cat_id
+          )
+        )`;
+        countParams.push(uniqueCategoryIds);
+        countParamIndex++;
+      } else {
+        countQuery += ` AND EXISTS (
+          SELECT 1 
+          FROM product_categories pc2 
+          WHERE pc2.product_id = p.id 
+          AND pc2.category_id = ANY($${countParamIndex}::int[])
+        )`;
+        countParams.push(uniqueCategoryIds);
+        countParamIndex++;
+      }
+    }
+
+    if (search && search !== "") {
+      countQuery += ` AND (
+        p.name ILIKE $${countParamIndex} 
+        OR p.description ILIKE $${countParamIndex}
+        OR p.code ILIKE $${countParamIndex}
+      )`;
+      countParams.push(`%${search}%`);
+      countParamIndex++;
+    }
+
+    // Execute both queries in parallel
+    const [productsResult, countResult] = await Promise.all([
+      pool.query(query, params),
+      pool.query(countQuery, countParams),
+    ]);
+
+    const products = productsResult.rows;
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    // Add category filter info to response metadata
+    const filterMetadata: any = {};
+    if (uniqueCategoryIds.length > 0) {
+      filterMetadata.categories = {
+        ids: uniqueCategoryIds,
+        matchType: matchType
+      };
+    }
+
+    reply.send(
+      successResponse(
+        {
+          data: products,
+          pagination: {
+            currentPage: pageNum,
+            limit: limitNum,
+            total,
+            totalPages,
+            hasNextPage: pageNum < totalPages,
+            hasPrevPage: pageNum > 1,
+          },
+          filters: Object.keys(filterMetadata).length > 0 ? filterMetadata : undefined,
+        },
+        "Products retrieved successfully",
+      ),
+    );
+  } catch (err: any) {
+    console.error("Error in getAllProducts:", err);
+    reply.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+}
 export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { category_id, search, branch_id } = req.body as {
