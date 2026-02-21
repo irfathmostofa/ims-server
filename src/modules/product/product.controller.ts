@@ -68,7 +68,103 @@ export async function getProductCat(req: FastifyRequest, reply: FastifyReply) {
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+export async function getFilterCategories(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    const { category_ids } = req.body as {
+      category_ids?: number[];
+    };
 
+    // Validate category_ids
+    if (
+      !category_ids ||
+      !Array.isArray(category_ids) ||
+      category_ids.length === 0
+    ) {
+      return reply.status(400).send({
+        success: false,
+        message: "category_ids must be a non-empty array",
+      });
+    }
+
+    // Remove duplicates
+    const uniqueCategoryIds = [...new Set(category_ids)];
+
+    // Simple query to get categories with their products
+    const query = `
+      SELECT 
+        c.id,
+        c.code,
+        c.name,
+        c.slug,
+        c.image,
+        c.status,
+        c.parent_id,
+        c.created_at,
+        c.updated_at,
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', p.id,
+              'name', p.name,
+              'slug', p.slug,
+              'code', p.code,
+              'selling_price', p.selling_price,
+              'regular_price', p.regular_price,
+              'status', p.status
+            )
+          )
+          FROM product_categories pc
+          JOIN product p ON pc.product_id = p.id
+          WHERE pc.category_id = c.id
+            AND p.status = 'A'
+        ) AS products,
+        (
+          SELECT COUNT(DISTINCT pc.product_id)
+          FROM product_categories pc
+          WHERE pc.category_id = c.id
+        ) AS total_products
+      FROM category c
+      WHERE c.id = ANY($1::int[])
+        AND c.status = 'A'
+      ORDER BY c.name;
+    `;
+
+    const result = await pool.query(query, [uniqueCategoryIds]);
+
+    if (result.rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "No categories found with the provided IDs",
+      });
+    }
+
+    reply.send(
+      successResponse(
+        {
+          categories: result.rows,
+          summary: {
+            total_categories: result.rows.length,
+            total_products: result.rows.reduce(
+              (sum, cat) => sum + parseInt(cat.total_products),
+              0,
+            ),
+          },
+        },
+        "Filter categories retrieved successfully",
+      ),
+    );
+  } catch (err: any) {
+    console.error("Error in getFilterCategories:", err);
+    reply.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+}
 export async function updateProductCat(
   req: FastifyRequest,
   reply: FastifyReply,
@@ -563,23 +659,26 @@ export async function getAllProducts(req: FastifyRequest, reply: FastifyReply) {
     });
   }
 }
-export async function getAllProductsCategory(req: FastifyRequest, reply: FastifyReply) {
+export async function getAllProductsCategory(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
   try {
-    const { 
-      page, 
-      limit, 
-      status, 
-      price_min, 
-      price_max, 
-      category_ids, 
+    const {
+      page,
+      limit,
+      status,
+      price_min,
+      price_max,
+      category_ids,
       category_match_type,
-      search 
+      search,
     } = req.body as {
       page?: number;
       limit?: number;
       status?: string;
       category_ids?: number[];
-      category_match_type?: 'ANY' | 'ALL'; // ANY: product in any category, ALL: product in all categories
+      category_match_type?: "ANY" | "ALL"; // ANY: product in any category, ALL: product in all categories
       search?: string;
       price_min?: number;
       price_max?: number;
@@ -606,13 +705,13 @@ export async function getAllProductsCategory(req: FastifyRequest, reply: Fastify
     }
 
     // Remove duplicates from category_ids
-    const uniqueCategoryIds = category_ids 
-      ? [...new Set(category_ids)].filter(id => !isNaN(id) && id > 0)
+    const uniqueCategoryIds = category_ids
+      ? [...new Set(category_ids)].filter((id) => !isNaN(id) && id > 0)
       : [];
 
     // Validate category_match_type
-    const matchType = category_match_type || 'ANY';
-    if (!['ANY', 'ALL'].includes(matchType)) {
+    const matchType = category_match_type || "ANY";
+    if (!["ANY", "ALL"].includes(matchType)) {
       return reply.status(400).send({
         success: false,
         message: "category_match_type must be either 'ANY' or 'ALL'",
@@ -674,7 +773,7 @@ export async function getAllProductsCategory(req: FastifyRequest, reply: Fastify
 
     // Category filter - handle multiple category IDs
     if (uniqueCategoryIds.length > 0) {
-      if (matchType === 'ALL') {
+      if (matchType === "ALL") {
         // Product must be in ALL specified categories
         query += ` AND NOT EXISTS (
           SELECT 1
@@ -724,7 +823,7 @@ export async function getAllProductsCategory(req: FastifyRequest, reply: Fastify
     `;
 
     // Additional filtering for category_ids if needed
-    if (uniqueCategoryIds.length > 0 && matchType === 'ALL') {
+    if (uniqueCategoryIds.length > 0 && matchType === "ALL") {
       // This is already handled in the CTE for ALL case, but we can add a safeguard
       query += ` AND category_ids IS NOT NULL`;
     }
@@ -843,7 +942,7 @@ export async function getAllProductsCategory(req: FastifyRequest, reply: Fastify
 
     // Category filter for count query
     if (uniqueCategoryIds.length > 0) {
-      if (matchType === 'ALL') {
+      if (matchType === "ALL") {
         countQuery += ` AND NOT EXISTS (
           SELECT 1
           FROM unnest($${countParamIndex}::int[]) required_cat_id
@@ -893,7 +992,7 @@ export async function getAllProductsCategory(req: FastifyRequest, reply: Fastify
     if (uniqueCategoryIds.length > 0) {
       filterMetadata.categories = {
         ids: uniqueCategoryIds,
-        matchType: matchType
+        matchType: matchType,
       };
     }
 
@@ -909,7 +1008,8 @@ export async function getAllProductsCategory(req: FastifyRequest, reply: Fastify
             hasNextPage: pageNum < totalPages,
             hasPrevPage: pageNum > 1,
           },
-          filters: Object.keys(filterMetadata).length > 0 ? filterMetadata : undefined,
+          filters:
+            Object.keys(filterMetadata).length > 0 ? filterMetadata : undefined,
         },
         "Products retrieved successfully",
       ),
@@ -921,6 +1021,281 @@ export async function getAllProductsCategory(req: FastifyRequest, reply: Fastify
       message: "Internal server error",
       error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
+  }
+}
+export async function getRecentProducts(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    const { page, limit, days } = req.body as {
+      page?: number;
+      limit?: number;
+      days?: number;
+    };
+
+    const pageNum = Math.max(1, page || 1);
+    const limitNum = Math.max(1, Math.min(limit || 10, 100));
+    const offset = (pageNum - 1) * limitNum;
+    const daysFilter = Math.max(1, days || 30); // Default to last 30 days
+
+    // Optimized query for recent products
+    const query = `
+      WITH recent_products AS (
+        SELECT 
+          p.id,
+          p.code,
+          p.name,
+          p.slug,
+          p.description,
+          p.cost_price,
+          p.selling_price,
+          p.regular_price,
+          p.status,
+          p.uom_id,
+          p.created_at,
+          EXTRACT(DAY FROM (NOW() - p.created_at)) AS days_ago,
+          COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock
+        FROM product p
+        LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
+        LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
+        WHERE p.status = 'A'
+          AND p.created_at >= NOW() - ($1::int || ' days')::interval
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+        LIMIT $2 OFFSET $3
+      ),
+      product_images AS (
+        SELECT 
+          pv.product_id,
+          json_agg(
+            json_build_object(
+              'id', pi.id,
+              'url', pi.url,
+              'alt_text', pi.alt_text,
+              'is_primary', pi.is_primary
+            ) ORDER BY pi.is_primary DESC, pi.id
+          ) AS images
+        FROM product_image pi
+        JOIN product_variant pv ON pi.product_variant_id = pv.id
+        WHERE pi.status = 'A' AND pv.status = 'A'
+        GROUP BY pv.product_id
+      )
+      SELECT 
+        rp.*,
+        u.name AS uom_name,
+        COALESCE(pi.images, '[]'::json) AS images,
+        CASE 
+          WHEN rp.days_ago <= 10 THEN 'New'
+          ELSE NULL
+        END AS badge
+      FROM recent_products rp
+      LEFT JOIN uom u ON rp.uom_id = u.id
+      LEFT JOIN product_images pi ON rp.id = pi.product_id
+      ORDER BY rp.created_at DESC;
+    `;
+
+    // Count query for pagination
+    const countQuery = `
+      SELECT COUNT(DISTINCT p.id) AS total
+      FROM product p
+      WHERE p.status = 'A'
+        AND p.created_at >= NOW() - ($1::int || ' days')::interval;
+    `;
+
+    const [productsResult, countResult] = await Promise.all([
+      pool.query(query, [daysFilter, limitNum, offset]),
+      pool.query(countQuery, [daysFilter]),
+    ]);
+
+    const products = productsResult.rows;
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    reply.send(
+      successResponse(
+        {
+          data: products,
+          summary: {
+            period: `Last ${daysFilter} days`,
+            total_products_found: total,
+          },
+          pagination: {
+            currentPage: pageNum,
+            limit: limitNum,
+            total,
+            totalPages,
+            hasNextPage: pageNum < totalPages,
+            hasPrevPage: pageNum > 1,
+          },
+        },
+        "Recent products retrieved successfully",
+      ),
+    );
+  } catch (err: any) {
+    console.error("Error in getRecentProducts:", err);
+    reply.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+}
+export async function getBestSellingProducts(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    const { page, limit } = req.body as {
+      page?: number;
+      limit?: number;
+    };
+
+    const pageNum = Math.max(1, page || 1);
+    const limitNum = Math.max(1, Math.min(limit || 10, 100));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Optimized query for all-time best-selling products
+    const query = `
+      WITH sales_data AS (
+        SELECT 
+          p.id,
+          p.code,
+          p.name,
+          p.slug,
+          p.description,
+          p.cost_price,
+          p.selling_price,
+          p.regular_price,
+          p.status,
+          p.uom_id,
+          p.created_at,
+          COUNT(DISTINCT oio.id) AS total_orders,
+          COALESCE(SUM(oio.quantity), 0) AS total_quantity_sold,
+          COALESCE(SUM(oio.subtotal), 0) AS total_revenue,
+          COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock,
+          RANK() OVER (ORDER BY COALESCE(SUM(oio.quantity), 0) DESC, COALESCE(SUM(oio.subtotal), 0) DESC) AS sales_rank
+        FROM product p
+        LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
+        LEFT JOIN order_item_online oio ON pv.id = oio.product_variant_id
+        LEFT JOIN order_online oo ON oio.order_id = oo.id AND oo.order_status NOT IN ('CANCELLED', 'REFUNDED')
+        LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
+        WHERE p.status = 'A'
+        GROUP BY p.id
+        HAVING COALESCE(SUM(oio.quantity), 0) > 0
+        ORDER BY total_quantity_sold DESC, total_revenue DESC
+        LIMIT $1 OFFSET $2
+      ),
+      product_images AS (
+        SELECT 
+          pv.product_id,
+          json_agg(
+            json_build_object(
+              'id', pi.id,
+              'url', pi.url,
+              'alt_text', pi.alt_text,
+              'is_primary', pi.is_primary
+            ) ORDER BY pi.is_primary DESC, pi.id
+          ) AS images
+        FROM product_image pi
+        JOIN product_variant pv ON pi.product_variant_id = pv.id
+        WHERE pi.status = 'A' AND pv.status = 'A'
+        GROUP BY pv.product_id
+      ),
+      product_categories_agg AS (
+        SELECT 
+          pc.product_id,
+          json_agg(
+            json_build_object(
+              'id', c.id,
+              'name', c.name,
+              'slug', c.slug
+            ) ORDER BY c.id
+          ) AS categories
+        FROM product_categories pc
+        JOIN category c ON pc.category_id = c.id
+        WHERE c.status = 'A'
+        GROUP BY pc.product_id
+      )
+      SELECT 
+        sd.id,
+        sd.code,
+        sd.name,
+        sd.slug,
+        sd.description,
+        sd.cost_price,
+        sd.selling_price,
+        sd.regular_price,
+        sd.status,
+        u.name AS uom_name,
+        COALESCE(pi.images, '[]'::json) AS images,
+        COALESCE(pc.categories, '[]'::json) AS categories,
+        sd.total_orders,
+        sd.total_quantity_sold,
+        sd.total_revenue,
+        sd.total_stock,
+        sd.sales_rank,
+        CASE 
+          WHEN sd.total_stock > 0 
+          THEN ROUND((sd.total_quantity_sold::DECIMAL / NULLIF(sd.total_stock, 0)) * 100, 2)
+          ELSE 0 
+        END AS sell_through_rate,
+        ROUND(
+          CASE 
+            WHEN sd.total_quantity_sold > 0 
+            THEN (sd.total_revenue / sd.total_quantity_sold)
+            ELSE 0 
+          END, 2
+        ) AS avg_selling_price
+      FROM sales_data sd
+      LEFT JOIN uom u ON sd.uom_id = u.id
+      LEFT JOIN product_images pi ON sd.id = pi.product_id
+      LEFT JOIN product_categories_agg pc ON sd.id = pc.product_id
+      ORDER BY sd.sales_rank;
+    `;
+
+    // Count query for pagination - only products that have been sold
+    const countQuery = `
+      SELECT COUNT(DISTINCT p.id) AS total
+      FROM product p
+      WHERE p.status = 'A'
+        AND EXISTS (
+          SELECT 1 
+          FROM product_variant pv 
+          JOIN order_item_online oio ON pv.id = oio.product_variant_id
+          JOIN order_online oo ON oio.order_id = oo.id
+          WHERE pv.product_id = p.id
+            AND oo.order_status NOT IN ('CANCELLED', 'REFUNDED')
+        );
+    `;
+
+    const [productsResult, countResult] = await Promise.all([
+      pool.query(query, [limitNum, offset]),
+      pool.query(countQuery),
+    ]);
+
+    const products = productsResult.rows;
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    reply.send(
+      successResponse(
+        {
+          data: products,
+          pagination: {
+            currentPage: pageNum,
+            limit: limitNum,
+            total,
+            totalPages,
+            hasNextPage: pageNum < totalPages,
+            hasPrevPage: pageNum > 1,
+          },
+        },
+        "Best-selling products retrieved successfully",
+      ),
+    );
+  } catch (err: any) {
+    console.error("Error in getBestSellingProducts:", err);
   }
 }
 export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {

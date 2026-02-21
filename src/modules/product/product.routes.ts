@@ -18,6 +18,8 @@ import {
   findProductByBarcode,
   getAllProducts,
   getAllProductsCategory,
+  getBestSellingProducts,
+  getFilterCategories,
   getProductBarcodes,
   getProductById,
   getProductBySlug,
@@ -27,6 +29,7 @@ import {
   getProductsByCategorySlug,
   getProductsPOS,
   getProductVariants,
+  getRecentProducts,
   getUOM,
   searchProducts,
   updateProduct,
@@ -48,18 +51,19 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post(
     "/create-product-cat",
     { preHandler: [app.authenticate] },
-    createProductCat
+    createProductCat,
   );
   app.get("/get-product-cat", getProductCat);
+  app.post("/get-product-cat-filter", getFilterCategories);
   app.post(
     "/update-product-cat/:id",
     { preHandler: [app.authenticate] },
-    updateProductCat
+    updateProductCat,
   );
   app.post(
     "/delete-product-cat",
     { preHandler: [app.authenticate] },
-    deleteProductCat
+    deleteProductCat,
   );
   // UOM
   app.post("/create-uom", { preHandler: [app.authenticate] }, createUOM);
@@ -75,17 +79,19 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post(
     "/bulk/preview",
     { preHandler: [app.authenticate] },
-    bulkProductPreview
+    bulkProductPreview,
   );
 
   app.post(
     "/bulk/confirm",
     { preHandler: [app.authenticate] },
-    bulkProductConfirm
+    bulkProductConfirm,
   );
 
   app.post("/get-all-products", getAllProducts);
   app.post("/get-all-products-with-cat", getAllProductsCategory);
+  app.post("/get-recent-product", getRecentProducts);
+  app.post("/get-best-selling-product", getBestSellingProducts);
   app.post("/get-pos-products", getProductsPOS);
   app.get("/products/search", searchProducts);
   app.get("/products/barcode/:barcode", findProductByBarcode);
@@ -95,12 +101,12 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post(
     "/update-products/:id",
     { preHandler: [app.authenticate] },
-    updateProduct
+    updateProduct,
   );
   app.post(
     "/delete-products/:id",
     { preHandler: [app.authenticate] },
-    deleteProduct
+    deleteProduct,
   );
 
   app.post("/products/:product_id/variants", createProductVariant);
