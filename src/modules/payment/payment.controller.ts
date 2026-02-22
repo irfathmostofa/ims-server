@@ -1,5 +1,6 @@
 // controllers/PaymentController.ts
 import { FastifyRequest, FastifyReply } from "fastify";
+import pool from "../../config/db";
 
 // Types
 interface InitiatePaymentBody {
@@ -41,7 +42,7 @@ const SSL_CONFIG = {
 async function makeRequest(
   url: string,
   data: Record<string, any>,
-  method: "POST" | "GET" = "POST"
+  method: "POST" | "GET" = "POST",
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -82,8 +83,10 @@ async function makeRequest(
 // Main controller functions
 export async function initiatePayment(
   req: FastifyRequest<{ Body: InitiatePaymentBody }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
+  const client = await pool.connect();
+
   try {
     const {
       orderId,
@@ -117,13 +120,88 @@ export async function initiatePayment(
       });
     }
 
+    // Verify order exists and is valid
+    const orderResult = await client.query(
+      `SELECT id, net_amount, payment_status 
+       FROM order_online 
+       WHERE code = $1 AND status = 'A'`,
+      [orderId],
+    );
+
+    if (orderResult.rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    const order = orderResult.rows[0];
+
+    // Check if order amount matches
+    if (parseFloat(order.net_amount) !== amount) {
+      return reply.status(400).send({
+        success: false,
+        message: "Amount does not match order total",
+      });
+    }
+
+    // Check if order is already paid
+    if (order.payment_status === "PAID") {
+      return reply.status(400).send({
+        success: false,
+        message: "Order is already paid",
+      });
+    }
+
+    // Fetch payment configuration from database
+    const configResult = await client.query(
+      `SELECT * FROM setup_data WHERE key_name='payment'`,
+    );
+
+    if (!configResult.rows.length) {
+      return reply.status(500).send({
+        success: false,
+        message: "Payment configuration not found",
+      });
+    }
+
+    // Parse the payment configuration
+    const paymentConfig = JSON.parse(configResult.rows[0].value);
+
+    // Check if online payment is enabled
+    if (!paymentConfig.online_payment?.status) {
+      return reply.status(400).send({
+        success: false,
+        message: "Online payment is disabled",
+      });
+    }
+
+    // Find SSLCommerz gateway configuration
+    const sslGateway = paymentConfig.online_payment.gateways?.find(
+      (gateway: any) =>
+        gateway.name === "SSLCommerz" && gateway.status === true,
+    );
+
+    if (!sslGateway) {
+      return reply.status(500).send({
+        success: false,
+        message: "SSLCommerz gateway not configured or disabled",
+      });
+    }
+
+    // Determine which URL to use based on environment
+    const baseUrl =
+      sslGateway.environment === "live"
+        ? "https://securepay.sslcommerz.com"
+        : sslGateway.sandbox_url || "https://sandbox.sslcommerz.com";
+
     // Generate unique transaction ID
     const tranId = `TXN_${orderId}_${Date.now()}`;
 
     // Prepare SSLCommerz request data
     const sslData = {
-      store_id: SSL_CONFIG.storeId,
-      store_passwd: SSL_CONFIG.storePassword,
+      store_id: sslGateway.store_id,
+      store_passwd: sslGateway.store_password,
       total_amount: amount.toFixed(2),
       currency: "BDT",
       tran_id: tranId,
@@ -137,7 +215,7 @@ export async function initiatePayment(
       cus_country: "Bangladesh",
 
       // Product info
-      product_name: productName,
+      product_name: productName || "General Product",
       product_category: productCategory,
       product_profile: "general",
 
@@ -154,9 +232,9 @@ export async function initiatePayment(
 
     // Call SSLCommerz API
     const sslResponse = await makeRequest(
-      `${SSL_CONFIG.baseUrl}/gwprocess/v4/api.php`,
+      `${baseUrl}/gwprocess/v4/api.php`,
       sslData,
-      "POST"
+      "POST",
     );
 
     if (sslResponse.status !== "SUCCESS") {
@@ -166,6 +244,24 @@ export async function initiatePayment(
       });
     }
 
+    // Insert payment record
+    const paymentMethodResult = await client.query(
+      `SELECT id FROM payment_method WHERE provider = 'SSLCOMMERZ' AND status = 'A'`,
+    );
+
+    let paymentMethodId = paymentMethodResult.rows[0]?.id;
+
+    await client.query(
+      `INSERT INTO order_payment_online (
+        order_id, 
+        payment_method_id, 
+        transaction_id, 
+        amount, 
+        status, 
+        created_at
+      ) VALUES ($1, $2, $3, $4, 'PENDING', NOW())`,
+      [order.id, paymentMethodId, tranId, amount],
+    );
 
     // Return payment URL to redirect user
     return reply.send({
@@ -175,6 +271,7 @@ export async function initiatePayment(
         paymentUrl: sslResponse.GatewayPageURL,
         transactionId: tranId,
         amount: amount,
+        orderId: orderId,
       },
     });
   } catch (error: any) {
@@ -184,14 +281,143 @@ export async function initiatePayment(
       message: "Failed to initiate payment",
       error: error.message,
     });
+  } finally {
+    client.release();
+  }
+}
+export async function initiatePaymentAfterOrder(
+  orderData: {
+    orderId: string;
+    amount: number;
+    customerName: string;
+    customerEmail: string;
+    customerPhone: string;
+    customerAddress: string;
+    productName: string;
+  },
+  client: any,
+) {
+  try {
+    // Fetch payment configuration from database
+    const configResult = await client.query(
+      `SELECT * FROM setup_data WHERE key_name='payment'`,
+    );
+
+    if (!configResult.rows.length) {
+      throw new Error("Payment configuration not found");
+    }
+
+    // Parse the payment configuration
+    const paymentConfig = JSON.parse(configResult.rows[0].value);
+
+    // Check if online payment is enabled
+    if (!paymentConfig.online_payment?.status) {
+      throw new Error("Online payment is disabled");
+    }
+
+    // Find SSLCommerz gateway configuration
+    const sslGateway = paymentConfig.online_payment.gateways?.find(
+      (gateway: any) =>
+        gateway.name === "SSLCommerz" && gateway.status === true,
+    );
+
+    if (!sslGateway) {
+      throw new Error("SSLCommerz gateway not configured or disabled");
+    }
+
+    // Determine which URL to use based on environment
+    const baseUrl =
+      sslGateway.environment === "live"
+        ? "https://securepay.sslcommerz.com"
+        : sslGateway.sandbox_url || "https://sandbox.sslcommerz.com";
+
+    // Generate unique transaction ID
+    const tranId = `TXN_${orderData.orderId}_${Date.now()}`;
+
+    // Prepare SSLCommerz request data
+    const sslData = {
+      store_id: sslGateway.store_id,
+      store_passwd: sslGateway.store_password,
+      total_amount: orderData.amount.toFixed(2),
+      currency: "BDT",
+      tran_id: tranId,
+
+      // Customer info
+      cus_name: orderData.customerName,
+      cus_email: orderData.customerEmail,
+      cus_phone: orderData.customerPhone,
+      cus_add1: orderData.customerAddress,
+      cus_city: "Dhaka",
+      cus_country: "Bangladesh",
+
+      // Product info
+      product_name: orderData.productName,
+      product_category: "General",
+      product_profile: "general",
+
+      // Callback URLs
+      success_url: `${process.env.BASE_URL}/api/payments/callback?type=success&tran_id=${tranId}`,
+      fail_url: `${process.env.BASE_URL}/api/payments/callback?type=fail&tran_id=${tranId}`,
+      cancel_url: `${process.env.BASE_URL}/api/payments/callback?type=cancel&tran_id=${tranId}`,
+      ipn_url: `${process.env.BASE_URL}/api/payments/callback?type=ipn`,
+
+      // Additional fields
+      value_a: orderData.orderId,
+      value_b: orderData.customerEmail,
+    };
+
+    // Call SSLCommerz API
+    const sslResponse = await makeRequest(
+      `${baseUrl}/gwprocess/v4/api.php`,
+      sslData,
+      "POST",
+    );
+
+    if (sslResponse.status !== "SUCCESS") {
+      throw new Error(sslResponse.failedreason || "Payment initiation failed");
+    }
+
+    // Insert payment record
+    const paymentMethodResult = await client.query(
+      `SELECT id FROM payment_method WHERE code = 'SSLCOMMERZ' AND status = 'A'`,
+    );
+
+    let paymentMethodId = paymentMethodResult.rows[0]?.id;
+
+    // Get order ID from code
+    const orderResult = await client.query(
+      `SELECT id FROM order_online WHERE code = $1`,
+      [orderData.orderId],
+    );
+
+    await client.query(
+      `INSERT INTO order_payment_online (
+        order_id, 
+        payment_method_id, 
+        transaction_id, 
+        amount, 
+        status, 
+        created_at
+      ) VALUES ($1, $2, $3, $4, 'PENDING', NOW())`,
+      [orderResult.rows[0].id, paymentMethodId, tranId, orderData.amount],
+    );
+
+    return {
+      paymentUrl: sslResponse.GatewayPageURL,
+      transactionId: tranId,
+      amount: orderData.amount,
+    };
+  } catch (error: any) {
+    console.error("Payment initiation error:", error);
+    throw new Error(`Payment initiation failed: ${error.message}`);
   }
 }
 
+// Update the route to handle both GET and POST
 export async function callback(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { type, tran_id } = req.query as { type: string; tran_id: string };
     const body = req.body as CallbackBody;
-
 
     // Handle different callback types
     switch (type) {
@@ -227,79 +453,282 @@ export async function callback(req: FastifyRequest, reply: FastifyReply) {
 async function handleIPN(ipnData: CallbackBody, reply: FastifyReply) {
   console.log("IPN Data received:", ipnData);
 
-  // 1. Validate transaction with SSLCommerz (MANDATORY)
+  const client = await pool.connect();
+
   try {
-    const validationResponse = await makeRequest(
-      `${SSL_CONFIG.baseUrl}/validator/api/validationserverAPI.php?` +
-        `val_id=${ipnData.val_id}&` +
-        `store_id=${SSL_CONFIG.storeId}&` +
-        `store_passwd=${SSL_CONFIG.storePassword}&` +
-        `format=json&v=1`,
-      {},
-      "GET"
+    await client.query("BEGIN");
+
+    // Fetch payment configuration from database
+    const configResult = await client.query(
+      `SELECT * FROM setup_data WHERE key_name='payment'`,
     );
+
+    if (!configResult.rows.length) {
+      throw new Error("Payment configuration not found");
+    }
+
+    const paymentConfig = JSON.parse(configResult.rows[0].value);
+
+    // Find SSLCommerz gateway configuration
+    const sslGateway = paymentConfig.online_payment.gateways?.find(
+      (gateway: any) =>
+        gateway.name === "SSLCommerz" && gateway.status === true,
+    );
+
+    if (!sslGateway) {
+      throw new Error("SSLCommerz gateway not configured");
+    }
+
+    // Determine base URL for validation
+    const baseUrl =
+      sslGateway.environment === "live"
+        ? "https://securepay.sslcommerz.com"
+        : sslGateway.sandbox_url || "https://sandbox.sslcommerz.com";
+
+    // 1. Validate transaction with SSLCommerz (MANDATORY)
+    const validationResponse = await makeRequest(
+      `${baseUrl}/validator/api/validationserverAPI.php?` +
+        `val_id=${ipnData.val_id}&` +
+        `store_id=${sslGateway.store_id}&` +
+        `store_passwd=${sslGateway.store_password}&` +
+        `format=json`,
+      {},
+      "GET",
+    );
+
+    console.log("SSLCommerz validation response:", validationResponse);
 
     // 2. Check if validation is successful
-    if (validationResponse.APIConnect !== "DONE") {
-      throw new Error("SSLCommerz validation failed");
+    if (
+      validationResponse.status !== "VALID" &&
+      validationResponse.status !== "VALIDATED"
+    ) {
+      throw new Error(
+        `Transaction validation failed with status: ${validationResponse.status}`,
+      );
     }
 
-    // 3. Check transaction status
-    if (!["VALID", "VALIDATED"].includes(validationResponse.status)) {
-      throw new Error(`Transaction is ${validationResponse.status}`);
-    }
+    // Extract orderId from tran_id (format: TXN_ORDER-12345_1678901234567)
+    const orderCode = ipnData.value_a || ipnData.tran_id.split("_")[1];
 
-    // 4. Update your database (implement your own logic)
-    console.log("Updating transaction in database:", {
-      transactionId: ipnData.tran_id,
-      status: validationResponse.status,
-      amount: validationResponse.amount,
-      validated: true,
-    });
-
-    // 5. Update order status to PAID
-    console.log(
-      "Updating order status to PAID for transaction:",
-      ipnData.tran_id
+    // 3. Get the order by code
+    const orderResult = await client.query(
+      `SELECT id FROM order_online WHERE code = $1 AND status = 'A'`,
+      [orderCode],
     );
 
-    // 6. Return success to SSLCommerz
-    return reply.send("IPN received and processed");
+    if (orderResult.rows.length === 0) {
+      throw new Error(`Order not found with code: ${orderCode}`);
+    }
+
+    const orderId = orderResult.rows[0].id;
+
+    // 4. Check if payment record already exists
+    const existingPayment = await client.query(
+      `SELECT id FROM order_payment_online WHERE transaction_id = $1`,
+      [ipnData.tran_id],
+    );
+
+    if (existingPayment.rows.length > 0) {
+      // Update existing payment record
+      await client.query(
+        `UPDATE order_payment_online 
+         SET status = 'SUCCESS', 
+             provider_response = $1,
+             paid_at = NOW(),
+             updated_at = NOW()
+         WHERE transaction_id = $2`,
+        [validationResponse, ipnData.tran_id],
+      );
+    } else {
+      // Insert new payment record
+      // Get payment_method_id for SSLCommerz
+      const paymentMethodResult = await client.query(
+        `SELECT id FROM payment_method WHERE code = 'SSLCOMMERZ' AND status = 'A'`,
+      );
+
+      let paymentMethodId = paymentMethodResult.rows[0]?.id;
+
+      if (!paymentMethodId) {
+        // Insert payment method if not exists
+        const newPaymentMethod = await client.query(
+          `INSERT INTO payment_method (name, code, status, created_at) 
+           VALUES ('SSLCommerz', 'SSLCOMMERZ', 'A', NOW()) 
+           RETURNING id`,
+        );
+        paymentMethodId = newPaymentMethod.rows[0].id;
+      }
+
+      await client.query(
+        `INSERT INTO order_payment_online (
+          order_id, 
+          payment_method_id, 
+          transaction_id, 
+          amount, 
+          status, 
+          provider_response, 
+          paid_at,
+          created_at
+        ) VALUES ($1, $2, $3, $4, 'SUCCESS', $5, NOW(), NOW())`,
+        [
+          orderId,
+          paymentMethodId,
+          ipnData.tran_id,
+          validationResponse.amount || ipnData.amount,
+          validationResponse,
+        ],
+      );
+    }
+
+    // 5. Update order payment status to PAID
+    await client.query(
+      `UPDATE order_online 
+       SET payment_status = 'PAID',
+           order_status = 'CONFIRMED',
+           updated_at = NOW()
+       WHERE id = $1`,
+      [orderId],
+    );
+
+    await client.query("COMMIT");
+
+    console.log(
+      `Transaction ${ipnData.tran_id} successfully processed for order ${orderCode}`,
+    );
+
+    // Return success to SSLCommerz
+    return reply.status(200).send({
+      status: "success",
+      message: "IPN received and processed successfully",
+    });
   } catch (error: any) {
+    await client.query("ROLLBACK");
     console.error("IPN validation error:", error);
     // Still return 200 to prevent SSLCommerz retries
-    return reply.send("IPN received with issues");
+    return reply.status(200).send({
+      status: "error",
+      message: "IPN received with issues: " + error.message,
+    });
+  } finally {
+    client.release();
   }
 }
 
 async function handleSuccess(tranId: string, reply: FastifyReply) {
   console.log("Success callback for transaction:", tranId);
 
-  // Check transaction status from your database
-  // (Implement your own database logic)
-  const transactionStatus = "PAID"; // This should come from your database
+  try {
+    // Get transaction details from database
+    const paymentResult = await pool.query(
+      `SELECT op.*, o.code as order_code 
+       FROM order_payment_online op
+       JOIN order_online o ON op.order_id = o.id
+       WHERE op.transaction_id = $1`,
+      [tranId],
+    );
 
-  if (transactionStatus === "PAID") {
-    return reply.redirect("/payment-success.html");
-  } else {
-    return reply.redirect("/payment-processing.html");
+    if (paymentResult.rows.length === 0) {
+      console.error(`Transaction ${tranId} not found in database`);
+      return reply.redirect(
+        `${process.env.FRONTEND_URL}/payment/error?reason=transaction_not_found`,
+      );
+    }
+
+    const payment = paymentResult.rows[0];
+
+    // If payment is already SUCCESS, redirect to success page
+    if (payment.status === "SUCCESS") {
+      return reply.redirect(
+        `${process.env.FRONTEND_URL}/payment/success?order_id=${payment.order_code}`,
+      );
+    }
+    // If payment is still PENDING, show processing page
+    else if (payment.status === "PENDING") {
+      return reply.redirect(
+        `${process.env.FRONTEND_URL}/payment/processing?order_id=${payment.order_code}`,
+      );
+    }
+    // Otherwise, show error
+    else {
+      return reply.redirect(
+        `${process.env.FRONTEND_URL}/payment/error?order_id=${payment.order_code}&reason=invalid_status`,
+      );
+    }
+  } catch (error: any) {
+    console.error("Error in success handler:", error);
+    return reply.redirect(
+      `${process.env.FRONTEND_URL}/payment/error?reason=callback_error`,
+    );
   }
 }
 
 async function handleFailure(tranId: string, reply: FastifyReply) {
   console.log("Failure callback for transaction:", tranId);
 
-  // Update transaction status in your database
-  console.log("Updating transaction status to FAILED:", tranId);
+  try {
+    // Update transaction status in database
+    const result = await pool.query(
+      `UPDATE order_payment_online 
+       SET status = 'FAILED', 
+           updated_at = NOW()
+       WHERE transaction_id = $1
+       RETURNING order_id`,
+      [tranId],
+    );
 
-  return reply.redirect("/payment-failed.html");
+    let orderCode = "";
+    if (result.rows.length > 0) {
+      // Get order code
+      const orderResult = await pool.query(
+        `SELECT code FROM order_online WHERE id = $1`,
+        [result.rows[0].order_id],
+      );
+      orderCode = orderResult.rows[0]?.code || "";
+    }
+
+    return reply.redirect(
+      `${process.env.FRONTEND_URL}/payment/failed?order_id=${orderCode}&reason=payment_failed`,
+    );
+  } catch (error: any) {
+    console.error("Error in failure handler:", error);
+    return reply.redirect(
+      `${process.env.FRONTEND_URL}/payment/failed?reason=callback_error`,
+    );
+  }
 }
 
 async function handleCancel(tranId: string, reply: FastifyReply) {
   console.log("Cancel callback for transaction:", tranId);
 
-  // Update transaction status in your database
-  console.log("Updating transaction status to CANCELLED:", tranId);
+  try {
+    // Delete or mark as cancelled in database
+    const result = await pool.query(
+      `UPDATE order_payment_online 
+       SET status = 'FAILED', 
+           updated_at = NOW()
+       WHERE transaction_id = $1
+       RETURNING order_id`,
+      [tranId],
+    );
 
-  return reply.redirect("/payment-cancelled.html");
+    let orderCode = "";
+    if (result.rows.length > 0) {
+      const orderResult = await pool.query(
+        `SELECT code FROM order_online WHERE id = $1`,
+        [result.rows[0].order_id],
+      );
+      orderCode = orderResult.rows[0]?.code || "";
+    }
+
+    return reply.redirect(
+      `${process.env.FRONTEND_URL}/payment/cancelled?order_id=${orderCode}`,
+    );
+  } catch (error: any) {
+    console.error("Error in cancel handler:", error);
+    return reply.redirect(
+      `${process.env.FRONTEND_URL}/payment/cancelled?reason=callback_error`,
+    );
+  }
 }
+
+// Update the initiatePayment function to work with your tables

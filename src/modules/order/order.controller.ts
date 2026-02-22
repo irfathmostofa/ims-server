@@ -12,6 +12,7 @@ import {
   orderPaymentOnlineModel,
 } from "./order.model";
 import pool from "../../config/db";
+import { initiatePaymentAfterOrder } from "../payment/payment.controller";
 
 // ===== TYPES =====
 interface OrderItem {
@@ -80,8 +81,21 @@ export async function createOnlineOrder(
       discount_amount,
     );
 
+    // Get payment method details
+    const paymentMethod = await client.query(
+      `SELECT * FROM payment_method WHERE id = $1 AND status = 'A'`,
+      [payment_method_id],
+    );
+
+    if (paymentMethod.rows.length === 0) {
+      throw new Error("Invalid payment method");
+    }
+
+    const paymentMethodCode = paymentMethod.rows[0].code;
+
     // Generate order code
     const code = generateOrderId();
+
     // Create order
     const order = await orderOnlineModel.create(
       {
@@ -94,7 +108,7 @@ export async function createOnlineOrder(
         discount_amount,
         is_cod,
         order_status: "PENDING",
-        payment_status: is_cod ? "UNPAID" : "PAID",
+        payment_status: is_cod ? "UNPAID" : "UNPAID", // Changed from PAID to PENDING for online payment
         status: "A",
         created_at: new Date(),
       },
@@ -123,7 +137,7 @@ export async function createOnlineOrder(
         order_id: orderId,
         delivery_method_id,
         tracking_code: null,
-        delivery_status: "ASSIGNED",
+        delivery_status: is_cod ? "ASSIGNED" : "ASSIGNED", // Changed for online payment
         cod_amount: is_cod ? netAmount : 0,
         cod_collected: false,
         status: "A",
@@ -134,10 +148,75 @@ export async function createOnlineOrder(
 
     await client.query("COMMIT");
 
-    // Fetch complete order
-    // const completeOrder = await getOrderById(orderId, client);
+    // If it's COD, return order directly
+    if (is_cod) {
+      return reply.send(
+        successResponse(
+          {
+            order,
+            requiresPayment: false,
+            message: "Order created successfully. Pay on delivery.",
+          },
+          "Order created successfully",
+        ),
+      );
+    }
 
-    reply.send(successResponse(order, "Order created successfully"));
+    // For online payment, get customer details and initiate payment
+    const customerResult = await client.query(
+      `SELECT full_name, email, phone FROM customer WHERE id = $1`,
+      [customer_id],
+    );
+
+    const customer = customerResult.rows[0];
+
+    // Get address details
+    const addressResult = await client.query(
+      `SELECT address_line, city FROM customer_address WHERE id = $1`,
+      [delivery_address_id],
+    );
+
+    const address = addressResult.rows[0];
+
+    // Get product names for the order (first item as main product)
+    const productResult = await client.query(
+      `SELECT p.name 
+       FROM order_item_online oi
+       JOIN product_variant pv ON oi.product_variant_id = pv.id
+       JOIN product p ON pv.product_id = p.id
+       WHERE oi.order_id = $1
+       LIMIT 1`,
+      [orderId],
+    );
+
+    const productName = productResult.rows[0]?.name || "Online Order";
+
+    // Initiate payment
+    const paymentResult = await initiatePaymentAfterOrder(
+      {
+        orderId: code,
+        amount: netAmount,
+        customerName: customer.full_name,
+        customerEmail: customer.email,
+        customerPhone: customer.phone,
+        customerAddress: address?.address_line,
+        productName,
+      },
+      client,
+    );
+
+    reply.send(
+      successResponse(
+        {
+          order,
+          requiresPayment: true,
+          paymentUrl: paymentResult.paymentUrl,
+          transactionId: paymentResult.transactionId,
+          message: "Order created successfully. Please complete payment.",
+        },
+        "Order created successfully",
+      ),
+    );
   } catch (err: any) {
     await client.query("ROLLBACK");
     reply.status(400).send({ success: false, message: err.message });
