@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { successResponse } from "../../core/utils/response";
+import { errorResponse, successResponse } from "../../core/utils/response";
 import {
   generateOrderId,
   generatePrefixedId,
@@ -458,7 +458,207 @@ export async function getAllOrders(
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+export async function getOnlinePayment(
+  req: FastifyRequest<{
+    Body: {
+      page?: string;
+      limit?: string;
+      customer_id?: string;
+      payment_status?: string;
+      search?: string;
+      from_date?: string;
+      to_date?: string;
+    };
+  }>,
+  reply: FastifyReply,
+) {
+  try {
+    const {
+      page = "1",
+      limit = "10",
+      customer_id,
+      payment_status,
+      search,
+      from_date,
+      to_date,
+    } = req.body;
 
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Build the WHERE clause dynamically
+    const conditions = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (customer_id) {
+      conditions.push(`oo.customer_id = $${paramIndex}`);
+      params.push(customer_id);
+      paramIndex++;
+    }
+
+    if (payment_status) {
+      conditions.push(`oo.payment_status = $${paramIndex}`);
+      params.push(payment_status);
+      paramIndex++;
+    }
+
+    if (from_date) {
+      conditions.push(`oo.created_at >= $${paramIndex}`);
+      params.push(from_date);
+      paramIndex++;
+    }
+
+    if (to_date) {
+      conditions.push(`oo.created_at <= $${paramIndex}`);
+      params.push(to_date);
+      paramIndex++;
+    }
+
+    if (search) {
+      conditions.push(`(
+        oo.code ILIKE $${paramIndex} OR 
+        c.full_name ILIKE $${paramIndex} OR 
+        c.email ILIKE $${paramIndex} OR 
+        c.phone ILIKE $${paramIndex} OR
+        op.transaction_id ILIKE $${paramIndex}
+      )`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    // Get total count for pagination
+    const countQuery = `
+      SELECT COUNT(DISTINCT oo.id) as total
+      FROM order_online oo
+      LEFT JOIN customer c ON c.id = oo.customer_id
+      LEFT JOIN order_payment_online op ON op.order_id = oo.id
+      ${whereClause}
+    `;
+
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    // Main query with pagination
+    const mainQuery = `
+      SELECT 
+        oo.id,
+        oo.code as order_code,
+        oo.total_amount,
+        oo.discount_amount,
+        oo.net_amount,
+        oo.is_cod,
+        oo.order_status,
+        oo.payment_status,
+        oo.created_at as order_date,
+        
+        -- Customer information
+        jsonb_build_object(
+          'id', c.id,
+          'code', c.code,
+          'full_name', c.full_name,
+          'email', c.email,
+          'phone', c.phone
+        ) as customer,
+        
+        -- Delivery address
+        jsonb_build_object(
+          'id', ca.id,
+          'label', ca.label,
+          'address_line', ca.address_line,
+          'city', ca.city,
+          'area', ca.area,
+          'postal_code', ca.postal_code,
+          'is_default', ca.is_default
+        ) as delivery_address,
+        
+        -- Delivery method
+        jsonb_build_object(
+          'id', dm.id,
+          'code', dm.code,
+          'name', dm.name
+        ) as delivery_method,
+        
+        -- Payment information
+        jsonb_build_object(
+          'id', pm.id,
+          'code', pm.code,
+          'name', pm.name,
+          'type', pm.type,
+          'provider', pm.provider
+        ) as payment_method,
+        
+        -- Online payment details
+        COALESCE(
+          (
+            SELECT jsonb_agg(
+              jsonb_build_object(
+                'id', op.id,
+                'transaction_id', op.transaction_id,
+                'amount', op.amount,
+                'status', op.status,
+                'provider_response', op.provider_response,
+                'paid_at', op.paid_at,
+                'created_at', op.created_at
+              ) ORDER BY op.created_at DESC
+            )
+            FROM order_payment_online op
+            WHERE op.order_id = oo.id 
+              AND op.record_status = 'A'
+          ),
+          '[]'::jsonb
+        ) as payment_transactions
+      FROM order_online oo
+      LEFT JOIN customer c ON c.id = oo.customer_id
+      LEFT JOIN customer_address ca ON ca.id = oo.delivery_address_id
+      LEFT JOIN delivery_method dm ON dm.id = oo.delivery_method_id
+      LEFT JOIN payment_method pm ON pm.id = oo.payment_method_id
+      LEFT JOIN order_payment_online op ON op.order_id = oo.id
+      
+      ${whereClause}
+      
+      GROUP BY 
+        oo.id, oo.code, oo.total_amount, oo.discount_amount, oo.net_amount,
+        oo.is_cod, oo.order_status, oo.payment_status, oo.created_at,
+        c.id, c.code, c.full_name, c.email, c.phone,
+        ca.id, ca.label, ca.address_line, ca.city, ca.area, ca.postal_code, ca.is_default,
+        dm.id, dm.code, dm.name,
+        pm.id, pm.code, pm.name, pm.type, pm.provider
+      
+      ORDER BY oo.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    // Add pagination parameters
+    params.push(limitNum, offset);
+
+    const paymentResult = await pool.query(mainQuery, params);
+
+    // Remove pagination params
+
+    return reply.send(
+      successResponse({
+        data: paymentResult.rows,
+        pagination: {
+          current_page: pageNum,
+          per_page: limitNum,
+          total_items: total,
+          total_pages: totalPages,
+          has_next: pageNum < totalPages,
+          has_previous: pageNum > 1,
+        },
+      }),
+    );
+  } catch (err: any) {
+    console.error("Error in getOnlinePayment:", err);
+    return reply.status(500).send(errorResponse(err.message));
+  }
+}
 // Update Order Status
 
 export async function updateOrderStatus(
@@ -668,8 +868,10 @@ export async function cancelOrder(
 
     // Check if order can be cancelled
     if (
-      order.order_status === "COMPLETED" ||
-      order.order_status === "CANCELLED"
+      order.order_status === "CANCELLED" ||
+      order.order_status === "PROCESSING" ||
+      order.order_status === "SHIPPED" ||
+      order.order_status === "DELIVERED"
     ) {
       throw new Error(`Cannot cancel order with status: ${order.order_status}`);
     }

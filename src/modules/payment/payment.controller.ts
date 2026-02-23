@@ -27,17 +27,6 @@ interface CallbackBody {
   [key: string]: any; // For other SSLCommerz fields
 }
 
-// SSLCommerz Configuration
-const SSL_CONFIG = {
-  isLive: process.env.NODE_ENV === "production",
-  storeId: process.env.SSLCOMMERZ_STORE_ID!,
-  storePassword: process.env.SSLCOMMERZ_STORE_PASSWORD!,
-  baseUrl:
-    process.env.NODE_ENV === "production"
-      ? "https://securepay.sslcommerz.com"
-      : "https://sandbox.sslcommerz.com",
-};
-
 // Helper function to make HTTP requests
 async function makeRequest(
   url: string,
@@ -246,7 +235,7 @@ export async function initiatePayment(
 
     // Insert payment record
     const paymentMethodResult = await client.query(
-      `SELECT id FROM payment_method WHERE provider = 'SSLCOMMERZ' AND status = 'A'`,
+      `SELECT * FROM payment_method WHERE provider = 'SSLCOMMERZ' AND status = 'A'`,
     );
 
     let paymentMethodId = paymentMethodResult.rows[0]?.id;
@@ -356,10 +345,10 @@ export async function initiatePaymentAfterOrder(
       product_profile: "general",
 
       // Callback URLs
-      success_url: `${process.env.BASE_URL}/api/payments/callback?type=success&tran_id=${tranId}`,
-      fail_url: `${process.env.BASE_URL}/api/payments/callback?type=fail&tran_id=${tranId}`,
-      cancel_url: `${process.env.BASE_URL}/api/payments/callback?type=cancel&tran_id=${tranId}`,
-      ipn_url: `${process.env.BASE_URL}/api/payments/callback?type=ipn`,
+      success_url: `${process.env.SERVER_URL}/payments/callback?type=success&tran_id=${tranId}`,
+      fail_url: `${process.env.SERVER_URL}/payments/callback?type=fail&tran_id=${tranId}`,
+      cancel_url: `${process.env.SERVER_URL}/payments/callback?type=cancel&tran_id=${tranId}`,
+      ipn_url: `${process.env.SERVER_URL}/payments/callback?type=ipn`,
 
       // Additional fields
       value_a: orderData.orderId,
@@ -379,7 +368,7 @@ export async function initiatePaymentAfterOrder(
 
     // Insert payment record
     const paymentMethodResult = await client.query(
-      `SELECT id FROM payment_method WHERE code = 'SSLCOMMERZ' AND status = 'A'`,
+      `SELECT * FROM payment_method WHERE code = 'SSLCOMMERZ' AND status = 'A'`,
     );
 
     let paymentMethodId = paymentMethodResult.rows[0]?.id;

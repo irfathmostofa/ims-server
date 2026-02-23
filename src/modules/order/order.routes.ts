@@ -7,6 +7,7 @@ import {
   getAllOrders,
   getCustomerItems,
   getCustomerOrder,
+  getOnlinePayment,
   recordOrderPayment,
   updateCustomerItem,
   updateDeliveryStatus,
@@ -19,6 +20,7 @@ export default async function orderRoutes(app: FastifyInstance) {
   app.post("/update-order-status", updateOrderStatus);
   app.post("/update-delivery-status", updateDeliveryStatus);
   app.post("/record-payment", recordOrderPayment);
+  app.post("/get-online-payment", getOnlinePayment);
   app.post("/get-all-order", getAllOrders);
   app.post("/cancel-order", cancelOrder);
   app.get("/get-order/:id", getCustomerOrder);
