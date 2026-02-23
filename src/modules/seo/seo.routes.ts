@@ -38,77 +38,77 @@ export default async function seoRoutes(app: FastifyInstance) {
   // Apply authentication hook to all routes
   //   app.addHook("onRequest", app.authenticate);
   // Create new SEO meta
-  app.post("/seo/meta", createSeoMeta);
+  app.post("/meta", createSeoMeta);
 
   // Get all SEO meta with pagination and filters
-  app.get("/seo/meta", getAllSeoMeta);
+  app.get("/meta", getAllSeoMeta);
 
   // Get single SEO meta by ID
-  app.get("/seo/meta/:id", getSeoMeta);
+  app.get("/meta/:id", getSeoMeta);
 
   // Update SEO meta by ID
-  app.put("/seo/meta/:id", updateSeoMeta);
+  app.put("/meta/:id", updateSeoMeta);
 
   // Delete SEO meta by ID
-  app.delete("/seo/meta/:id", deleteSeoMeta);
+  app.delete("/meta/:id", deleteSeoMeta);
 
   // Get SEO meta by entity type and ID
-  app.get("/seo/meta/entity/:entity_type/:entity_id", getSeoByEntity);
+  app.get("/meta/entity/:entity_type/:entity_id", getSeoByEntity);
 
   // Create new redirect
-  app.post("/seo/redirect", createSeoRedirect);
+  app.post("/redirect", createSeoRedirect);
 
   // Get all redirects with pagination
-  app.get("/seo/redirect", getAllSeoRedirects);
+  app.get("/redirect", getAllSeoRedirects);
 
   // Get single redirect by ID
-  app.get("/seo/redirect/:id", getSeoRedirect);
+  app.get("/redirect/:id", getSeoRedirect);
 
   // Update redirect by ID
-  app.put("/seo/redirect/:id", updateSeoRedirect);
+  app.put("/redirect/:id", updateSeoRedirect);
 
   // Delete redirect by ID
-  app.delete("/seo/redirect/:id", deleteSeoRedirect);
+  app.delete("/redirect/:id", deleteSeoRedirect);
 
   // Check redirect by old URL (useful for middleware)
-  app.get("/seo/redirect/check", checkRedirect);
+  app.get("/redirect/check", checkRedirect);
 
   // Create new keyword
-  app.post("/seo/keyword", createSeoKeyword);
+  app.post("/keyword", createSeoKeyword);
 
   // Get all keywords with pagination and filters
-  app.get("/seo/keyword", getAllSeoKeywords);
+  app.get("/keyword", getAllSeoKeywords);
 
   // Get single keyword by ID
-  app.get("/seo/keyword/:id", getSeoKeyword);
+  app.get("/keyword/:id", getSeoKeyword);
 
   // Update keyword by ID
-  app.put("/seo/keyword/:id", updateSeoKeyword);
+  app.put("/keyword/:id", updateSeoKeyword);
 
   // Delete keyword by ID
-  app.delete("/seo/keyword/:id", deleteSeoKeyword);
+  app.delete("/keyword/:id", deleteSeoKeyword);
 
   // Get keywords by entity type and ID
-  app.get("/seo/keyword/entity/:entity_type/:entity_id", getKeywordsByEntity);
+  app.get("/keyword/entity/:entity_type/:entity_id", getKeywordsByEntity);
 
   // Create new sitemap entry
-  app.post("/seo/sitemap", createSeoSitemap);
+  app.post("/sitemap", createSeoSitemap);
 
   // Get all sitemap entries with pagination and filters
-  app.get("/seo/sitemap", getAllSeoSitemaps);
+  app.get("/sitemap", getAllSeoSitemaps);
 
   // Get single sitemap entry by ID
-  app.get("/seo/sitemap/:id", getSeoSitemap);
+  app.get("/sitemap/:id", getSeoSitemap);
 
   // Update sitemap entry by ID
-  app.put("/seo/sitemap/:id", updateSeoSitemap);
+  app.put("/sitemap/:id", updateSeoSitemap);
 
   // Delete sitemap entry by ID
-  app.delete("/seo/sitemap/:id", deleteSeoSitemap);
+  app.delete("/sitemap/:id", deleteSeoSitemap);
 
   // Get sitemap by URL
-  app.get("/seo/sitemap/url", getSitemapByUrl);
+  app.get("/sitemap/url", getSitemapByUrl);
 
   // Get sitemaps by priority range
-  app.get("/seo/sitemap/priority/range", getSitemapsByPriority);
+  app.get("/sitemap/priority/range", getSitemapsByPriority);
 }
