@@ -345,9 +345,14 @@ export async function initiatePaymentAfterOrder(
       product_profile: "general",
 
       // Callback URLs
+      // success_url: `${process.env.SERVER_URL}/payments/callback?type=success&tran_id=${tranId}`,
+      // fail_url: `${process.env.SERVER_URL}/payments/callback?type=fail&tran_id=${tranId}`,
+      // cancel_url: `${process.env.SERVER_URL}/payments/callback?type=cancel&tran_id=${tranId}`,
+      // ipn_url: `${process.env.SERVER_URL}/payments/callback?type=ipn`,
+
       success_url: `${process.env.SERVER_URL}/payments/callback?type=success&tran_id=${tranId}`,
       fail_url: `${process.env.SERVER_URL}/payments/callback?type=fail&tran_id=${tranId}`,
-      cancel_url: `${process.env.SERVER_URL}/payments/callback?type=cancel&tran_id=${tranId}`,
+      cancel_url: `${process.env.FRONTEND_URL}/checkout`,
       ipn_url: `${process.env.SERVER_URL}/payments/callback?type=ipn`,
 
       // Additional fields
@@ -485,7 +490,6 @@ async function handleIPN(ipnData: CallbackBody, reply: FastifyReply) {
       "GET",
     );
 
-    console.log("SSLCommerz validation response:", validationResponse);
 
     // 2. Check if validation is successful
     if (
@@ -687,8 +691,6 @@ async function handleFailure(tranId: string, reply: FastifyReply) {
 }
 
 async function handleCancel(tranId: string, reply: FastifyReply) {
-  console.log("Cancel callback for transaction:", tranId);
-
   try {
     // Delete or mark as cancelled in database
     const result = await pool.query(
@@ -710,7 +712,8 @@ async function handleCancel(tranId: string, reply: FastifyReply) {
     }
 
     return reply.redirect(
-      `${process.env.FRONTEND_URL}/payment/cancelled?order_id=${orderCode}`,
+      `${process.env.FRONTEND_URL}/checkout`,
+      // `${process.env.FRONTEND_URL}/payment/cancelled?order_id=${orderCode}`,
     );
   } catch (error: any) {
     console.error("Error in cancel handler:", error);

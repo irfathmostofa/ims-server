@@ -110,12 +110,10 @@ export async function createCoupon(
 
 // GET ALL COUPONS
 export async function getAllCoupons(
-  req: FastifyRequest<{ Body: any }>,
+  req: FastifyRequest,
   reply: FastifyReply
 ) {
   try {
-    // Get any filters from body
-    const filters = req.body || {};
 
     // Use findAll from CrudModel
     const coupons = await CouponModel.findAll();
