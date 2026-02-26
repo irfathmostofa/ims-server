@@ -3,7 +3,7 @@ export const productCatModel = new CrudModel(
   "category", // table name
   ["code", "name"], // required
   ["code"], // unique
-  ["slug", "parent_id"] // optional
+  ["slug","image", "parent_id"] // optional
 );
 export const UomModel = new CrudModel(
   "uom",
