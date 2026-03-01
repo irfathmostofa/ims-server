@@ -399,7 +399,7 @@ export async function getAllOrders(
     );
     const totalCount = parseInt(countResult.rows[0].count);
 
-    // Get orders with items
+    // Get orders with items and categories
     const ordersResult = await pool.query(
       `
       SELECT 
@@ -421,15 +421,33 @@ export async function getAllOrders(
               'product_variant_id', oi.product_variant_id,
               'product_name', p.name,
               'variant_name', pv.name,
+              'variant_sku', pv.sku,
               'quantity', oi.quantity,
               'unit_price', oi.unit_price,
+              'weight', pv.weight,
+              'weight_unit', pv.weight_unit,
               'discount', oi.discount,
-              'subtotal', oi.subtotal
+              'subtotal', oi.subtotal,
+              'categories', (
+                SELECT json_agg(
+                  json_build_object(
+                    'id', cat.id,
+                    'name', cat.name,
+                    'slug', cat.slug,
+                    'code', cat.code,
+                    'is_primary', pc.is_primary
+                  )
+                  ORDER BY pc.is_primary DESC, cat.name ASC
+                )
+                FROM product_categories pc
+                INNER JOIN category cat ON pc.category_id = cat.id
+                WHERE pc.product_id = p.id AND cat.status = 'A'
+              )
             )
           )
           FROM order_item_online oi
-          LEFT JOIN product_variant pv ON oi.product_variant_id = pv.id
-          LEFT JOIN product p ON pv.product_id = p.id
+          INNER JOIN product_variant pv ON oi.product_variant_id = pv.id
+          INNER JOIN product p ON pv.product_id = p.id
           WHERE oi.order_id = o.id
         ) AS items
       FROM order_online o

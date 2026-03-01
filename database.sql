@@ -206,10 +206,6 @@ CREATE TABLE goods_received_note (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-
-
-
-Cancelled
 CREATE TABLE grn_items (
     id SERIAL PRIMARY KEY,
     grn_id INT REFERENCES goods_received_note(id) ON DELETE CASCADE,
