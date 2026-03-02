@@ -5,7 +5,7 @@ export class CrudModel {
     private table: string,
     private requiredFields: string[] = [],
     private uniqueFields: string[] = [],
-    private optionalFields: string[] = []
+    private optionalFields: string[] = [],
   ) {}
 
   //Sanitize data: empty string → null, remove undefined
@@ -15,15 +15,15 @@ export class CrudModel {
         .map(([key, value]) => [key, value === "" ? null : value])
         .filter(
           ([key, value]) =>
-            value !== undefined || this.optionalFields.includes(key)
-        )
+            value !== undefined || this.optionalFields.includes(key),
+        ),
     );
   }
 
   //Validate required fields
   private validateRequired(data: Record<string, any>) {
     const missingFields = this.requiredFields.filter(
-      (field) => data[field] === undefined || data[field] === null
+      (field) => data[field] === undefined || data[field] === null,
     );
     if (missingFields.length > 0) {
       throw new Error(`Missing required fields: ${missingFields.join(", ")}`);
@@ -34,7 +34,7 @@ export class CrudModel {
   private async checkDuplicates(
     data: Record<string, any>,
     excludeId?: number,
-    client?: any
+    client?: any,
   ) {
     const queryRunner = client || pool;
 
@@ -56,17 +56,24 @@ export class CrudModel {
     }
   }
 
-  async findAll(client?: any) {
+  async findAll(order?: string, client?: any) {
     const queryRunner = client || pool;
-    const { rows } = await queryRunner.query(`SELECT * FROM ${this.table}`);
+    let query = `SELECT * FROM ${this.table}`;
+
+    if (order) {
+      query += ` ORDER BY ${order}`;
+    }
+
+    const { rows } = await queryRunner.query(query);
     return rows;
   }
+
 
   async findById(id: any, client?: any) {
     const queryRunner = client || pool;
     const { rows } = await queryRunner.query(
       `SELECT * FROM ${this.table} WHERE id = $1`,
-      [id]
+      [id],
     );
     return rows[0];
   }
@@ -75,7 +82,7 @@ export class CrudModel {
     const queryRunner = client || pool;
     const { rows } = await queryRunner.query(
       `SELECT * FROM ${this.table} WHERE ${field} = $1`,
-      [value]
+      [value],
     );
     return rows;
   }
@@ -93,7 +100,7 @@ export class CrudModel {
 
     const { rows } = await queryRunner.query(
       `INSERT INTO ${this.table} (${keys}) VALUES (${placeholders}) RETURNING *`,
-      values
+      values,
     );
 
     return rows[0];
@@ -119,7 +126,7 @@ export class CrudModel {
       `UPDATE ${this.table} SET ${setClause} WHERE id = $${
         keys.length + 1
       } RETURNING *`,
-      [...values, id]
+      [...values, id],
     );
 
     return rows[0];
@@ -128,7 +135,7 @@ export class CrudModel {
   async updateSection(
     id: number,
     sectionFields: Record<string, any>,
-    client?: any
+    client?: any,
   ) {
     const queryRunner = client || pool;
 
@@ -149,7 +156,7 @@ export class CrudModel {
       `UPDATE ${this.table} SET ${setClause} WHERE id = $${
         keys.length + 1
       } RETURNING *`,
-      [...values, id]
+      [...values, id],
     );
 
     return rows[0];
@@ -159,7 +166,7 @@ export class CrudModel {
 
     const { rows } = await queryRunner.query(
       `DELETE FROM ${this.table} WHERE id = $1 RETURNING *`,
-      [id]
+      [id],
     );
     return rows[0];
   }
@@ -168,7 +175,7 @@ export class CrudModel {
     page: number = 1,
     limit: number = 10,
     filters: Record<string, any> = {},
-    client?: any
+    client?: any,
   ) {
     const queryRunner = client || pool;
     const offset = (page - 1) * limit;
@@ -202,7 +209,7 @@ export class CrudModel {
     endDate: string,
     page: number = 1,
     limit: number = 10,
-    client?: any
+    client?: any,
   ) {
     const queryRunner = client || pool;
     const offset = (page - 1) * limit;
@@ -213,7 +220,7 @@ export class CrudModel {
       ORDER BY ${dateField} DESC
       LIMIT $3 OFFSET $4
       `,
-      [startDate, endDate, limit, offset]
+      [startDate, endDate, limit, offset],
     );
 
     return rows;

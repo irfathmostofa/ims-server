@@ -759,14 +759,9 @@ export async function updateDeliveryStatus(
         client,
       );
     }
-
     await client.query("COMMIT");
-
-    const updatedOrder = await getOrderById(orderId, client);
-
     reply.send({
       success: true,
-      data: updatedOrder,
       message: "Delivery status updated successfully",
     });
   } catch (err: any) {
@@ -1147,11 +1142,9 @@ export async function getCustomerItems(
 
     reply.send(successResponse(transformedItems));
   } catch (err: any) {
-    req.log.error(err);
     reply.status(400).send({
       success: false,
       message: "Failed to fetch customer items",
-      error: process.env.NODE_ENV === "development" ? err.message : undefined,
     });
   }
 }

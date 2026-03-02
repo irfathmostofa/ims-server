@@ -42,7 +42,7 @@ export async function createProductCat(
 export async function getProductCat(req: FastifyRequest, reply: FastifyReply) {
   try {
     // 1️⃣ Get all categories
-    const categories = await productCatModel.findAll();
+    const categories = await productCatModel.findAll("id ASC");
 
     // 2️⃣ Create a map to store categories by id
     const map: Record<number, any> = {};
@@ -1055,7 +1055,15 @@ export async function getRecentProducts(
           p.uom_id,
           p.created_at,
           EXTRACT(DAY FROM (NOW() - p.created_at)) AS days_ago,
-          COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock
+          COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock,
+          (
+            SELECT pv.id 
+            FROM product_variant pv 
+            WHERE pv.product_id = p.id 
+              AND pv.status = 'A' 
+            ORDER BY pv.id 
+            LIMIT 1
+          ) AS primary_variant_id
         FROM product p
         LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
         LEFT JOIN inventory_stock inv ON pv.id = inv.product_variant_id
@@ -1116,10 +1124,6 @@ export async function getRecentProducts(
       successResponse(
         {
           data: products,
-          summary: {
-            period: `Last ${daysFilter} days`,
-            total_products_found: total,
-          },
           pagination: {
             currentPage: pageNum,
             limit: limitNum,
@@ -1134,11 +1138,6 @@ export async function getRecentProducts(
     );
   } catch (err: any) {
     console.error("Error in getRecentProducts:", err);
-    reply.status(500).send({
-      success: false,
-      message: "Internal server error",
-      error: process.env.NODE_ENV === "development" ? err.message : undefined,
-    });
   }
 }
 export async function getBestSellingProducts(
