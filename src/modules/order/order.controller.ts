@@ -414,6 +414,12 @@ export async function getAllOrders(
         ca.city,
         ca.area,
         ca.postal_code,
+        od.tracking_code,
+        od.delivery_status,
+        od.cod_amount,
+        od.cod_collected,
+        od.cod_collected_date,
+        od.courier_response,
         (
           SELECT json_agg(
             json_build_object(
@@ -453,6 +459,7 @@ export async function getAllOrders(
       FROM order_online o
       LEFT JOIN customer c ON o.customer_id = c.id
       LEFT JOIN customer_address ca ON o.delivery_address_id = ca.id
+      LEFT JOIN order_delivery od ON o.id = od.order_id
       LEFT JOIN delivery_method dm ON o.delivery_method_id = dm.id
       LEFT JOIN payment_method pm ON o.payment_method_id = pm.id
       ${whereClause}
@@ -866,10 +873,22 @@ export async function cancelOrder(
     await client.query("BEGIN");
 
     const orderId = req.body.id;
+    const cancelReason = req.body.reason;
 
-    // Get order
+    // Get order with items for potential stock restoration
     const orderResult = await client.query(
-      "SELECT * FROM order_online WHERE id = $1",
+      `SELECT oo.*, 
+        json_agg(
+          json_build_object(
+            'id', oi.id,
+            'product_variant_id', oi.product_variant_id,
+            'quantity', oi.quantity
+          )
+        ) AS items
+      FROM order_online oo
+      LEFT JOIN order_item_online oi ON oo.id = oi.order_id
+      WHERE oo.id = $1
+      GROUP BY oo.id`,
       [orderId],
     );
 
@@ -879,35 +898,54 @@ export async function cancelOrder(
 
     const order = orderResult.rows[0];
 
+    // Define which statuses can be cancelled
+    const cancellableStatuses = ["PENDING", "CONFIRMED", "PROCESSING"];
+
     // Check if order can be cancelled
-    if (
-      order.order_status === "CANCELLED" ||
-      order.order_status === "PROCESSING" ||
-      order.order_status === "SHIPPED" ||
-      order.order_status === "DELIVERED"
-    ) {
-      throw new Error(`Cannot cancel order with status: ${order.order_status}`);
+    if (!cancellableStatuses.includes(order.order_status)) {
+      throw new Error(
+        `Order cannot be cancelled. Current status: ${order.order_status}. ` +
+          `Only orders with status: ${cancellableStatuses.join(", ")} can be cancelled.`,
+      );
     }
 
-    // Update order status
+    if (order.items && order.items.length > 0) {
+      for (const item of order.items) {
+        if (item.product_variant_id) {
+          await client.query(
+            `UPDATE inventory_stock 
+             SET quantity = quantity + $1 
+             WHERE product_variant_id = $2`,
+            [item.quantity, item.product_variant_id],
+          );
+        }
+      }
+    }
+
+    // Update order status with cancellation details
     await orderOnlineModel.update(
       orderId,
-      { order_status: "CANCELLED" },
+      {
+        order_status: "CANCELLED",
+        updated_at: new Date(),
+        status: "I",
+      },
       client,
     );
 
     await client.query("COMMIT");
 
-    const updatedOrder = await getOrderById(orderId, client);
-
     reply.send({
       success: true,
-      data: updatedOrder,
       message: "Order cancelled successfully",
     });
   } catch (err: any) {
     await client.query("ROLLBACK");
-    reply.status(400).send({ success: false, message: err.message });
+    reply.status(400).send({
+      success: false,
+      message: err.message,
+      error: err.message,
+    });
   } finally {
     client.release();
   }

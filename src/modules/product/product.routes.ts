@@ -19,6 +19,7 @@ import {
   getAllProducts,
   getAllProductsCategory,
   getBestSellingProducts,
+  getCustomerProductReviews,
   getFilterCategories,
   getProductBarcodes,
   getProductById,
@@ -128,6 +129,7 @@ export default async function productRoutes(app: FastifyInstance) {
   // ===== PRODUCT REVIEW ROUTES =====
   app.post("/create-reviews", createProductReview);
   app.get("/get-products-reviews", getProductReviews);
+  app.post("/get-customer-reviews", getCustomerProductReviews);
   app.post("/update-reviews", updateProductReview);
   app.post("/delete-reviews", deleteProductReview);
 }

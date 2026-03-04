@@ -530,7 +530,8 @@ CREATE TABLE customer_items (
 
 CREATE TABLE product_review (
   id SERIAL PRIMARY KEY,
-  product_id INT REFERENCES product(id),
+  order_id INT REFERENCES order_online(id),
+  product_id INT REFERENCES product_variant(id),
   customer_id INT REFERENCES customer(id),
   rating NUMERIC(2,1) CHECK (rating BETWEEN 0 AND 5),
   title VARCHAR(100),

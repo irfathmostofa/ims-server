@@ -11,6 +11,7 @@ import {
   productCatModel,
   productImageModel,
   productModel,
+  productReviewImageModel,
   productReviewModel,
   productVariantModel,
   UomModel,
@@ -1169,10 +1170,19 @@ export async function getBestSellingProducts(
           p.status,
           p.uom_id,
           p.created_at,
+          (
+            SELECT pv.id 
+            FROM product_variant pv 
+            WHERE pv.product_id = p.id 
+              AND pv.status = 'A' 
+            ORDER BY pv.id 
+            LIMIT 1
+          ) AS primary_variant_id,
           COUNT(DISTINCT oio.id) AS total_orders,
           COALESCE(SUM(oio.quantity), 0) AS total_quantity_sold,
           COALESCE(SUM(oio.subtotal), 0) AS total_revenue,
           COALESCE(SUM(DISTINCT inv.quantity), 0) AS total_stock,
+          
           RANK() OVER (ORDER BY COALESCE(SUM(oio.quantity), 0) DESC, COALESCE(SUM(oio.subtotal), 0) DESC) AS sales_rank
         FROM product p
         LEFT JOIN product_variant pv ON p.id = pv.product_id AND pv.status = 'A'
@@ -1217,40 +1227,41 @@ export async function getBestSellingProducts(
         GROUP BY pc.product_id
       )
       SELECT 
-        sd.id,
-        sd.code,
-        sd.name,
-        sd.slug,
-        sd.description,
-        sd.cost_price,
-        sd.selling_price,
-        sd.regular_price,
-        sd.status,
-        u.name AS uom_name,
-        COALESCE(pi.images, '[]'::json) AS images,
-        COALESCE(pc.categories, '[]'::json) AS categories,
-        sd.total_orders,
-        sd.total_quantity_sold,
-        sd.total_revenue,
-        sd.total_stock,
-        sd.sales_rank,
-        CASE 
-          WHEN sd.total_stock > 0 
-          THEN ROUND((sd.total_quantity_sold::DECIMAL / NULLIF(sd.total_stock, 0)) * 100, 2)
-          ELSE 0 
-        END AS sell_through_rate,
-        ROUND(
-          CASE 
-            WHEN sd.total_quantity_sold > 0 
-            THEN (sd.total_revenue / sd.total_quantity_sold)
-            ELSE 0 
-          END, 2
-        ) AS avg_selling_price
-      FROM sales_data sd
-      LEFT JOIN uom u ON sd.uom_id = u.id
-      LEFT JOIN product_images pi ON sd.id = pi.product_id
-      LEFT JOIN product_categories_agg pc ON sd.id = pc.product_id
-      ORDER BY sd.sales_rank;
+  sd.id,
+  sd.code,
+  sd.name,
+  sd.slug,
+  sd.description,
+  sd.cost_price,
+  sd.selling_price,
+  sd.regular_price,
+  sd.status,
+  sd.primary_variant_id,
+  u.name AS uom_name,
+  COALESCE(pi.images, '[]'::json) AS images,
+  COALESCE(pc.categories, '[]'::json) AS categories,
+  sd.total_orders,
+  sd.total_quantity_sold,
+  sd.total_revenue,
+  sd.total_stock,
+  sd.sales_rank,
+  CASE 
+    WHEN sd.total_stock > 0 
+    THEN ROUND((sd.total_quantity_sold::DECIMAL / NULLIF(sd.total_stock, 0)) * 100, 2)
+    ELSE 0 
+  END AS sell_through_rate,
+  ROUND(
+    CASE 
+      WHEN sd.total_quantity_sold > 0 
+      THEN (sd.total_revenue / sd.total_quantity_sold)
+      ELSE 0 
+    END, 2
+  ) AS avg_selling_price
+FROM sales_data sd
+LEFT JOIN uom u ON sd.uom_id = u.id
+LEFT JOIN product_images pi ON sd.id = pi.product_id
+LEFT JOIN product_categories_agg pc ON sd.id = pc.product_id
+ORDER BY sd.sales_rank
     `;
 
     // Count query for pagination - only products that have been sold
@@ -1655,7 +1666,7 @@ export async function getProductBySlug(
           WHERE v.product_id = p.id AND v.status = 'A'
         ), '[]') AS variants,
 
-        -- Reviews
+       -- Reviews
         COALESCE((
           SELECT JSON_AGG(
             JSON_BUILD_OBJECT(
@@ -1665,7 +1676,17 @@ export async function getProductBySlug(
               'title', r.title,
               'comment', r.comment,
               'helpful', r.helpful_count,
-              'created_at', r.created_at
+              'created_at', r.created_at,
+              'images', (
+                SELECT JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                  'id', pri.id,
+                    'image_url', pri.image_url
+                  )
+                )
+                FROM product_review_image pri
+                WHERE pri.review_id = r.id
+              )
             ) ORDER BY r.created_at DESC
           )
           FROM product_review r
@@ -2798,15 +2819,86 @@ export async function findProductByBarcode(
 // ========== PRODUCT REVIEW CRUD ==========
 
 export async function createProductReview(
-  req: FastifyRequest,
+  req: FastifyRequest<{
+    Body: {
+      order_id: number;
+      product_id: number;
+      customer_id: number;
+      rating: number;
+      title?: string;
+      comment?: string;
+      images?: { url: string }[];
+    };
+  }>,
   reply: FastifyReply,
 ) {
   try {
-    const fields = req.body as Record<string, any>;
-    const newData = await productReviewModel.create(fields);
-    reply.send(successResponse(newData, "Product Review created successfully"));
+    const {
+      order_id,
+      product_id,
+      customer_id,
+      rating,
+      title,
+      comment,
+      images,
+    } = req.body;
+
+    // Validate rating
+    if (rating < 0 || rating > 5) {
+      throw new Error("Rating must be between 0 and 5");
+    }
+
+    // Check for existing review
+    const existingReview = await pool.query(
+      `SELECT id FROM product_review 
+       WHERE customer_id = $1 AND product_id = $2`,
+      [customer_id, product_id],
+    );
+
+    if (existingReview.rows.length > 0) {
+      throw new Error("You have already reviewed this product");
+    }
+
+    // Create review using model
+    const reviewData = {
+      order_id,
+      product_id,
+      customer_id,
+      rating,
+      title,
+      comment,
+      helpful_count: 0,
+    };
+
+    const newReview = await productReviewModel.create(reviewData);
+
+    // Create images using model
+    let reviewImages = [];
+    if (images && images.length > 0) {
+      for (const image of images) {
+        const imageData = {
+          review_id: newReview.id,
+          image_url: image.url,
+        };
+        const newImage = await productReviewImageModel.create(imageData);
+        reviewImages.push(newImage);
+      }
+    }
+
+    reply.send({
+      success: true,
+      message: "Product review created successfully",
+      data: {
+        ...newReview,
+        images: reviewImages,
+      },
+    });
   } catch (err: any) {
-    reply.status(400).send({ success: false, message: err.message });
+    console.error("Error creating product review:", err);
+    reply.status(400).send({
+      success: false,
+      message: err.message,
+    });
   }
 }
 
@@ -2822,7 +2914,102 @@ export async function getProductReviews(
     reply.status(400).send({ success: false, message: err.message });
   }
 }
+export async function getCustomerProductReviews(
+  req: FastifyRequest<{
+    Body: {
+      customerId: string;
+      page?: string;
+      limit?: string;
+    };
+  }>,
+  reply: FastifyReply,
+) {
+  try {
+    const { customerId, page = "1", limit = "10" } = req.body;
 
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.max(1, Math.min(parseInt(limit), 100));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Main query with pagination
+    const query = `
+      SELECT 
+      r.id,
+      r.order_id,
+      r.product_id AS variant_id,
+      r.rating,
+      r.title,
+      r.comment,
+      r.helpful_count,
+      r.created_at,
+      o.order_status,
+      o.created_at as order_date,
+      p.id AS product_id,
+      p.name AS product_name,
+      p.slug AS product_slug,
+      pv.name AS variant_name,
+      pv.code AS variant_code,
+      pv.sku AS variant_sku,
+      pv.additional_price AS variant_price,
+      (
+        SELECT COALESCE(
+          json_agg(
+            json_build_object(
+              'id', pri.id,
+              'image_url', pri.image_url
+            ) ORDER BY pri.id
+          ),
+          '[]'::json
+        )
+        FROM product_review_image pri
+        WHERE pri.review_id = r.id
+      ) AS images
+    FROM product_review r
+    JOIN product_variant pv ON r.product_id = pv.id
+    JOIN product p ON pv.product_id = p.id
+    LEFT JOIN order_online o ON r.order_id = o.id
+    WHERE r.customer_id =$1
+    ORDER BY r.created_at DESC
+    LIMIT $2 OFFSET $3
+    `;
+
+    // Count query for pagination
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM product_review
+      WHERE customer_id = $1
+    `;
+
+    const [reviewsResult, countResult] = await Promise.all([
+      pool.query(query, [customerId, limitNum, offset]),
+      pool.query(countQuery, [customerId]),
+    ]);
+
+    const reviews = reviewsResult.rows;
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    reply.send({
+      success: true,
+      message: "Customer reviews retrieved successfully",
+      data: reviews,
+      pagination: {
+        currentPage: pageNum,
+        limit: limitNum,
+        total,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error fetching customer reviews:", err);
+    reply.status(500).send({
+      success: false,
+      message: err.message,
+    });
+  }
+}
 export async function updateProductReview(
   req: FastifyRequest,
   reply: FastifyReply,

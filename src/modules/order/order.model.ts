@@ -11,13 +11,20 @@ export const orderOnlineModel = new CrudModel(
     "total_amount",
   ],
   [],
-  ["discount_amount", "is_cod", "order_status", "payment_status"]
+  [
+    "discount_amount",
+    "is_cod",
+    "order_status",
+    "payment_status",
+    "updated_at",
+    "status",
+  ],
 );
 export const orderItemOnlineModel = new CrudModel(
   "order_item_online",
   ["order_id", "product_variant_id", "quantity", "unit_price"],
   [],
-  ["discount"]
+  ["discount"],
 );
 export const orderDeliveryModel = new CrudModel(
   "order_delivery",
@@ -33,7 +40,7 @@ export const orderDeliveryModel = new CrudModel(
     "status",
     "created_by",
     "creation_date",
-  ]
+  ],
 );
 
 export const orderPaymentOnlineModel = new CrudModel(
@@ -57,12 +64,12 @@ export const orderPaymentOnlineModel = new CrudModel(
     "record_status",
     "created_by",
     "creation_date",
-  ]
+  ],
 );
 
 export const customerItemsModel = new CrudModel(
   "customer_items",
   ["customer_id", "product_variant_id", "item_type"],
   [],
-  ["quantity", "unit_price", "status"]
+  ["quantity", "unit_price", "status"],
 );
