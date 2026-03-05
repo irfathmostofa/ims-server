@@ -1619,7 +1619,7 @@ export async function getProductBySlug(
           FROM product_categories pc
           JOIN category c ON pc.category_id = c.id
           WHERE pc.product_id = p.id AND c.status = 'A'
-        ), '[]') AS categories,
+        ), '[]'::json) AS categories,
 
         -- Variants with barcodes, images, and stock
         COALESCE((
@@ -1638,7 +1638,7 @@ export async function getProductBySlug(
                     'type', b.type,
                     'is_primary', b.is_primary
                   ) ORDER BY b.is_primary DESC
-                ), '[]')
+                ), '[]'::json)
                 FROM product_barcode b
                 WHERE b.product_variant_id = v.id AND b.status = 'A'
               ),
@@ -1651,7 +1651,7 @@ export async function getProductBySlug(
                     'alt_text', i.alt_text,
                     'is_primary', i.is_primary
                   ) ORDER BY i.is_primary DESC, i.id
-                ), '[]')
+                ), '[]'::json)
                 FROM product_image i
                 WHERE i.product_variant_id = v.id AND i.status = 'A'
               ),
@@ -1664,45 +1664,70 @@ export async function getProductBySlug(
           )
           FROM product_variant v
           WHERE v.product_id = p.id AND v.status = 'A'
-        ), '[]') AS variants,
+        ), '[]'::json) AS variants,
 
-       -- Reviews
+        -- Reviews with customer info
         COALESCE((
           SELECT JSON_AGG(
             JSON_BUILD_OBJECT(
               'id', r.id,
-              'customer_name', c.full_name,
+              'order_id', r.order_id,
+              'variant_id', r.product_id,
               'rating', r.rating,
               'title', r.title,
               'comment', r.comment,
-              'helpful', r.helpful_count,
+              'helpful_count', r.helpful_count,
               'created_at', r.created_at,
-              'images', (
+              'customer', JSON_BUILD_OBJECT(
+                'id', c.id,
+                'name', c.full_name,
+                'email', c.email
+              ),
+              'variant', JSON_BUILD_OBJECT(
+                'id', pv.id,
+                'name', pv.name,
+                'code', pv.code,
+                'sku', pv.sku
+              ),
+              'images', COALESCE((
                 SELECT JSON_AGG(
                   JSON_BUILD_OBJECT(
-                  'id', pri.id,
+                    'id', pri.id,
                     'image_url', pri.image_url
-                  )
+                  ) ORDER BY pri.id
                 )
                 FROM product_review_image pri
                 WHERE pri.review_id = r.id
-              )
+              ), '[]'::json)
             ) ORDER BY r.created_at DESC
           )
           FROM product_review r
           JOIN customer c ON r.customer_id = c.id
-          WHERE r.product_id = p.id
-        ), '[]') AS reviews,
+          JOIN product_variant pv ON r.product_id = pv.id
+          WHERE pv.product_id = p.id
+        ), '[]'::json) AS reviews,
 
         -- Review summary
         COALESCE((
           SELECT JSON_BUILD_OBJECT(
             'average_rating', ROUND(AVG(r.rating)::numeric, 1),
-            'total_reviews', COUNT(*)
+            'total_reviews', COUNT(*),
+            'rating_breakdown', JSON_BUILD_OBJECT(
+              '5', COUNT(*) FILTER (WHERE r.rating = 5),
+              '4', COUNT(*) FILTER (WHERE r.rating = 4),
+              '3', COUNT(*) FILTER (WHERE r.rating = 3),
+              '2', COUNT(*) FILTER (WHERE r.rating = 2),
+              '1', COUNT(*) FILTER (WHERE r.rating = 1)
+            )
           )
           FROM product_review r
-          WHERE r.product_id = p.id
-        ), JSON_BUILD_OBJECT('average_rating', 0, 'total_reviews', 0)) AS review_summary,
+          JOIN product_variant pv ON r.product_id = pv.id
+          WHERE pv.product_id = p.id
+        ), JSON_BUILD_OBJECT(
+          'average_rating', 0, 
+          'total_reviews', 0,
+          'rating_breakdown', JSON_BUILD_OBJECT('5', 0, '4', 0, '3', 0, '2', 0, '1', 0)
+        )) AS review_summary,
 
         -- Total stock across all variants
         COALESCE((
