@@ -378,7 +378,93 @@ CREATE TABLE journal_line (
     CHECK (debit >= 0 AND credit >= 0),
     CHECK (debit = 0 OR credit = 0)
 );
+CREATE TABLE account_head (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(20) NOT NULL, 
+    -- ASSET, LIABILITY, EQUITY, INCOME, EXPENSE
+    parent_id INT REFERENCES account_head(id),
+    is_group BOOLEAN DEFAULT FALSE,
+    status CHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT,
+    updated_at TIMESTAMP
+);
+CREATE TABLE account (
+    id SERIAL PRIMARY KEY,
+    head_id INT NOT NULL REFERENCES account_head(id),
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    account_type VARCHAR(20),
+    -- CASH, BANK, RECEIVABLE, PAYABLE, EXPENSE, REVENUE, GENERAL
+    is_branch_controlled BOOLEAN DEFAULT FALSE,
+    -- TRUE = each branch must have separate mapping
+    account_no VARCHAR(50),
+    status CHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT,
+    updated_at TIMESTAMP
+);
+CREATE TABLE branch_account (
+    id SERIAL PRIMARY KEY,
+    branch_id INT REFERENCES branch(id),
+    account_id INT REFERENCES account(id),
+    account_no VARCHAR(50),
+    UNIQUE(branch_id, account_id)
+);
+CREATE TABLE accounting_period (
+    id SERIAL PRIMARY KEY,
+    period_name VARCHAR(20),
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    fiscal_year INT,
+    is_closed BOOLEAN DEFAULT FALSE,
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE journal_entry (
+    id SERIAL PRIMARY KEY,
+    branch_id INT REFERENCES branch(id),
+    entry_no VARCHAR(30) NOT NULL,
+    entry_date DATE NOT NULL,
+    period_id INT REFERENCES accounting_period(id),
+    source_module VARCHAR(30),
+    -- POS, PURCHASE, PAYMENT, PAYROLL
+    source_id INT,
+    narration TEXT,
+    status CHAR(1) DEFAULT 'P',
+    -- D = Draft
+    -- P = Posted
+    -- C = Cancelled
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT,
+    updated_at TIMESTAMP,
+    UNIQUE(branch_id, entry_no)
+);
+CREATE TABLE journal_line (
+    id SERIAL PRIMARY KEY,
+    journal_entry_id INT REFERENCES journal_entry(id),
+    account_id INT REFERENCES account(id),
+    branch_id INT REFERENCES branch(id),
+    debit NUMERIC(14,2) DEFAULT 0,
+    credit NUMERIC(14,2) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (debit >= 0 AND credit >= 0),
+    CHECK (NOT (debit > 0 AND credit > 0))
+);
 
+CREATE INDEX idx_journal_branch
+ON journal_entry(branch_id);
+CREATE INDEX idx_journal_date
+ON journal_entry(entry_date);
+CREATE INDEX idx_journal_line_account
+ON journal_line(account_id);
+CREATE INDEX idx_journal_line_branch
+ON journal_line(branch_id);
 
 CREATE TABLE activity_log (
     id SERIAL PRIMARY KEY,

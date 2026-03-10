@@ -327,7 +327,7 @@ export async function getAllInvoices(
     const values: any[] = [];
     let paramIndex = 1;
 
-    //  Always prefix with alias `i.` to prevent ambiguity
+    // Always prefix with alias `i.` to prevent ambiguity
     if (type) {
       conditions.push(`i.type = $${paramIndex++}`);
       values.push(type);
@@ -356,7 +356,7 @@ export async function getAllInvoices(
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    //  Count query (with alias for consistency)
+    // Count query (with alias for consistency)
     const countQuery = `
       SELECT COUNT(*) AS total
       FROM invoice i
@@ -365,16 +365,34 @@ export async function getAllInvoices(
     const countResult = await pool.query(countQuery, values);
     const totalCount = parseInt(countResult.rows[0].total);
 
-    //  Main data query (clear aliases, no ambiguity)
+    // Main data query with payment history as JSON
     const dataQuery = `
       SELECT 
         i.*,
         b.name AS branch_name,
-        p.name AS party_name
+        p.name AS party_name,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', pay.id,
+              'method', pay.method,
+              'amount', pay.amount,
+              'payment_date', pay.payment_date,
+              'reference_no', pay.reference_no,
+              'created_by', pay.created_by,
+              'created_at', pay.created_at,
+              'updated_by', pay.updated_by,
+              'updated_at', pay.updated_at
+            ) ORDER BY pay.payment_date DESC
+          ) FILTER (WHERE pay.id IS NOT NULL),
+          '[]'::json
+        ) AS payment_history
       FROM invoice i
       LEFT JOIN branch b ON i.branch_id = b.id
       LEFT JOIN party p ON i.party_id = p.id
+      LEFT JOIN payments pay ON i.id = pay.invoice_id
       ${whereClause}
+      GROUP BY i.id, b.name, p.name
       ORDER BY i.created_at DESC
       LIMIT $${paramIndex++} OFFSET $${paramIndex};
     `;
@@ -568,7 +586,7 @@ export async function addPayment(
         method,
         amount,
         reference_no,
-        // created_by: userId,
+        created_by: userId,
       },
       client,
     );
