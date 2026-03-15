@@ -6,7 +6,7 @@ import SMSService from "../core/services/smsService";
 // Configuration
 const smsConfig = {
   apiKey: process.env.SMS_API_KEY || "8mqF9BTFnPgkNSl3WY86",
-  senderId: process.env.SMS_SENDER_ID || "YOUR_SENDER_ID",
+  senderId: process.env.SMS_SENDER_ID || "8809648906525",
   baseUrl: process.env.SMS_API_URL || "http://bulksmsbd.net/api/smsapi",
 };
 

@@ -410,7 +410,7 @@ export async function sendOTP(
 ) {
   try {
     const { email, phone, name, type } = req.body;
-
+    const OTP = Math.floor(100000 + Math.random() * 900000).toString();
     if (!email) {
       return reply.code(400).send({
         success: false,
@@ -419,7 +419,7 @@ export async function sendOTP(
     }
 
     // Send OTP email
-    const result = await EmailService.sendOTP(email, phone, name);
+    const result = await EmailService.sendOTP(email, phone, name, OTP);
     if (!result.success) {
       return reply.code(500).send({
         success: false,
@@ -428,8 +428,8 @@ export async function sendOTP(
     }
 
     // Store OTP
-    if (result.otp) {
-      OTPStore.save(email, result.otp, 2);
+    if (OTP) {
+      OTPStore.save(email, OTP, 2);
     }
 
     return reply.send({
@@ -494,7 +494,7 @@ export async function resendOTP(
 ) {
   try {
     const { email, phone, name } = req.body;
-
+    const OTP = Math.floor(100000 + Math.random() * 900000).toString();
     if (!email) {
       return reply.code(400).send({
         success: false,
@@ -502,7 +502,7 @@ export async function resendOTP(
       });
     }
 
-    const result = await EmailService.sendOTP(email, phone, name);
+    const result = await EmailService.sendOTP(email, phone, name, OTP);
 
     if (!result.success) {
       return reply.code(500).send({
@@ -511,8 +511,8 @@ export async function resendOTP(
       });
     }
 
-    if (result.otp) {
-      OTPStore.save(email, result.otp, 2);
+    if (OTP) {
+      OTPStore.save(email, OTP, 2);
     }
 
     return reply.send({

@@ -4,18 +4,15 @@ import { emailTemplates } from "../utils/emailTemplates";
 
 export class EmailService {
   // Generate 6-digit OTP
-  static generateOTP(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  }
 
   // Send OTP Email
   static async sendOTP(
     email: string,
     phone: string,
     userName: string = "User",
+    otp: string,
   ): Promise<{ success: boolean; otp?: string; error?: string }> {
     try {
-      const otp = this.generateOTP();
       const template = emailTemplates.otpEmail(otp, userName);
       await smsService.sendOTP(phone, otp);
       await transporter.sendMail({
