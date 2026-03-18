@@ -1308,6 +1308,7 @@ ORDER BY sd.sales_rank
     console.error("Error in getBestSellingProducts:", err);
   }
 }
+
 export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
   try {
     const { category_id, search, branch_id } = req.body as {
@@ -1316,16 +1317,13 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
       branch_id?: number;
     };
 
-    // Build conditions and parameters
     const conditions: string[] = [];
     const params: any[] = [];
     let paramIndex = 1;
 
-    // Base conditions
     conditions.push("p.status = 'A'");
     conditions.push("(pv.status = 'A' OR pv.status IS NULL)");
 
-    // Branch filter
     if (branch_id) {
       conditions.push(`EXISTS (
         SELECT 1 FROM inventory_stock st 
@@ -1336,7 +1334,6 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
       paramIndex++;
     }
 
-    // Category filter
     if (category_id && category_id.trim() !== "" && category_id !== "All") {
       const categoryIdNum = parseInt(category_id);
       if (!isNaN(categoryIdNum)) {
@@ -1350,25 +1347,29 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
       }
     }
 
-    // Search filter
     if (search && search.trim() !== "") {
       conditions.push(`(
-        p.name ILIKE $${paramIndex} OR 
+        p.name ILIKE $${paramIndex} OR
         p.code ILIKE $${paramIndex} OR
         pv.name ILIKE $${paramIndex} OR
         pv.code ILIKE $${paramIndex} OR
-        (p.name || ' (' || COALESCE(pv.name, '') || ')') ILIKE $${paramIndex}
+        (p.name || ' (' || COALESCE(pv.name, '') || ')') ILIKE $${paramIndex} OR
+        EXISTS (
+          SELECT 1 FROM product_barcode pb
+          WHERE pb.product_variant_id = pv.id
+          AND pb.barcode ILIKE $${paramIndex}
+          AND pb.status = 'A'
+        )
       )`);
       params.push(`%${search.trim()}%`);
       paramIndex++;
     }
 
-    // Build the final query
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const query = `
-      SELECT 
+      SELECT
         p.id AS product_id,
         pv.id AS variant_id,
         COALESCE(pv.code, p.code) AS code,
@@ -1378,8 +1379,11 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
         pv.weight,
         pv.weight_unit,
         pv.is_replaceable,
-        CASE 
-          WHEN pv.name IS NOT NULL AND pv.name != '' 
+        pi_agg.images,
+        bc_agg.barcodes,
+        bc_agg.primary_barcode,
+        CASE
+          WHEN pv.name IS NOT NULL AND pv.name != ''
           THEN p.name || ' (' || pv.name || ')'
           ELSE p.name
         END AS display_name,
@@ -1405,17 +1409,51 @@ export async function getProductsPOS(req: FastifyRequest, reply: FastifyReply) {
         pv.status AS variant_status,
         ${
           branch_id
-            ? `(
-          SELECT b.name
-          FROM branch b
-          WHERE b.id = $1
-        ) AS branch_name,
-        $1 AS branch_id`
+            ? `(SELECT b.name FROM branch b WHERE b.id = $1) AS branch_name,
+               $1 AS branch_id`
             : `'All Branches' AS branch_name, NULL AS branch_id`
         }
       FROM product p
       LEFT JOIN uom u ON u.id = p.uom_id
       LEFT JOIN product_variant pv ON pv.product_id = p.id
+
+      -- Images aggregated per product
+      LEFT JOIN (
+        SELECT
+          pv2.product_id,
+          json_agg(
+            json_build_object(
+              'id',         pi.id,
+              'url',        pi.url,
+              'alt_text',   pi.alt_text,
+              'is_primary', pi.is_primary,
+              'variant_id', pi.product_variant_id
+            ) ORDER BY pi.is_primary DESC, pi.id
+          ) AS images
+        FROM product_image pi
+        JOIN product_variant pv2 ON pi.product_variant_id = pv2.id
+        WHERE pi.status = 'A' AND pv2.status = 'A'
+        GROUP BY pv2.product_id
+      ) pi_agg ON pi_agg.product_id = p.id
+
+      -- Barcodes aggregated per variant
+      LEFT JOIN (
+        SELECT
+          pb.product_variant_id,
+          json_agg(
+            json_build_object(
+              'id',         pb.id,
+              'barcode',    pb.barcode,
+              'type',       pb.type,
+              'is_primary', pb.is_primary
+            ) ORDER BY pb.is_primary DESC, pb.id
+          ) AS barcodes,
+          MAX(CASE WHEN pb.is_primary THEN pb.barcode END) AS primary_barcode
+        FROM product_barcode pb
+        WHERE pb.status = 'A'
+        GROUP BY pb.product_variant_id
+      ) bc_agg ON bc_agg.product_variant_id = pv.id
+
       ${whereClause}
       ORDER BY p.name, pv.name NULLS FIRST
     `;

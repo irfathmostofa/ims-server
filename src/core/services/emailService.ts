@@ -13,8 +13,9 @@ export class EmailService {
     otp: string,
   ): Promise<{ success: boolean; otp?: string; error?: string }> {
     try {
-      const template = emailTemplates.otpEmail(otp, userName);
       await smsService.sendOTP(phone, otp);
+      const template = emailTemplates.otpEmail(otp, userName);
+
       await transporter.sendMail({
         from: `"UniStock Pro" <${process.env.SMTP_USER}>`,
         to: email,
