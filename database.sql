@@ -284,14 +284,20 @@ CREATE TABLE invoice (
     party_id INT REFERENCES party(id), 
     type VARCHAR(20) CHECK (type IN ('SALE','PURCHASE','EXPENSE')),
     invoice_date DATE DEFAULT CURRENT_DATE,
+    discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    tax_amount      DECIMAL(12,2) NOT NULL DEFAULT 0,
     total_amount DECIMAL(12,2) NOT NULL,
     paid_amount DECIMAL(12,2) DEFAULT 0,
     due_amount DECIMAL(12,2) GENERATED ALWAYS AS (total_amount - paid_amount) STORED,
-    status VARCHAR(10) DEFAULT 'DUE' CHECK (status IN ('PAID','PARTIAL','DUE')),
+    status VARCHAR(10) DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','DUE','PARTIAL','PAID','CANCELLED')),
     created_by INT NOT NULL REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_invoice_paid_not_over  CHECK (paid_amount   <= total_amount),
+    CONSTRAINT chk_invoice_total_positive CHECK (total_amount  >= 0),
+    CONSTRAINT chk_invoice_discount       CHECK (discount_amount >= 0),
+    CONSTRAINT chk_invoice_tax            CHECK (tax_amount    >= 0)
 );
 
 CREATE TABLE invoice_items (
@@ -299,85 +305,91 @@ CREATE TABLE invoice_items (
     invoice_id INT REFERENCES invoice(id) ON DELETE CASCADE,
     product_variant_id INT REFERENCES product_variant(id),
     quantity DECIMAL(12,2) NOT NULL,
+    cost_price DECIMAL(12,2) NOT NULL,
     unit_price DECIMAL(12,2) NOT NULL,
     discount DECIMAL(12,2) DEFAULT 0,
-    subtotal DECIMAL(12,2) GENERATED ALWAYS AS ((quantity * unit_price) - discount) STORED
+    subtotal DECIMAL(12,2) GENERATED ALWAYS AS ((quantity * unit_price) - discount) STORED,
+    CONSTRAINT chk_item_qty_positive   CHECK (quantity   > 0),
+    CONSTRAINT chk_item_price_positive CHECK (unit_price >= 0),
+    CONSTRAINT chk_item_discount       CHECK (discount   >= 0)
 );
 
 CREATE TABLE payments (
     id SERIAL PRIMARY KEY,
-    invoice_id INT REFERENCES invoice(id) ON DELETE CASCADE,
-    method VARCHAR(20) CHECK (method IN ('CASH','BANK','ONLINE')),
+    invoice_id INT NOT NULL REFERENCES invoice(id) ON DELETE CASCADE,
+    account_id INT NOT NULL REFERENCES account(id),
+    method VARCHAR(20) CHECK (method IN ('CASH','CARD','BANK','MOBILE','ONLINE','COD')),
     amount DECIMAL(12,2) NOT NULL,
-    payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    payment_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reference_no VARCHAR(50),
     created_by INT NOT NULL REFERENCES users(id),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_by INT REFERENCES users(id),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE account_head (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(20) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    type VARCHAR(20) CHECK (type IN ('ASSET','LIABILITY','INCOME','EXPENSE','EQUITY')),
-    parent_id INT REFERENCES account_head(id),
-    status CHAR(1) DEFAULT 'A',
-    created_by INT NOT NULL REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE account (
-    id SERIAL PRIMARY KEY,
-    branch_id INT REFERENCES branch(id),
-    head_id INT REFERENCES account_head(id),
-    code VARCHAR(30) UNIQUE NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    account_no VARCHAR(50),
-    opening_balance NUMERIC(14,2) DEFAULT 0,
-    opening_balance_type VARCHAR(5) CHECK (opening_balance_type IN ('DEBIT','CREDIT')),
-    status CHAR(1) DEFAULT 'A',
-    created_by INT NOT NULL REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_by INT REFERENCES users(id),
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 
-CREATE TABLE accounting_period (
-    id SERIAL PRIMARY KEY,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    is_closed BOOLEAN DEFAULT FALSE,
-    created_by INT NOT NULL REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE journal_entry (
-    id SERIAL PRIMARY KEY,
-    branch_id INT REFERENCES branch(id),
-    entry_no VARCHAR(30) UNIQUE NOT NULL,
-    entry_date DATE NOT NULL,
-    period_id INT REFERENCES accounting_period(id),
-    source_module VARCHAR(30), 
-    source_id INT,
-    narration TEXT,
-   created_by INT NOT NULL REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE journal_line (
-    id SERIAL PRIMARY KEY,
-    journal_entry_id INT REFERENCES journal_entry(id) ON DELETE CASCADE,
-    account_id INT REFERENCES account(id),
-    debit NUMERIC(14,2) DEFAULT 0,
-    credit NUMERIC(14,2) DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CHECK (debit >= 0 AND credit >= 0),
-    CHECK (debit = 0 OR credit = 0)
-);
+-- CREATE TABLE account_head (
+--     id SERIAL PRIMARY KEY,
+--     code VARCHAR(20) NOT NULL,
+--     name VARCHAR(100) NOT NULL,
+--     type VARCHAR(20) CHECK (type IN ('ASSET','LIABILITY','INCOME','EXPENSE','EQUITY')),
+--     parent_id INT REFERENCES account_head(id),
+--     status CHAR(1) DEFAULT 'A',
+--     created_by INT NOT NULL REFERENCES users(id),
+--   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--   updated_by INT REFERENCES users(id),
+--   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
+-- CREATE TABLE account (
+--     id SERIAL PRIMARY KEY,
+--     branch_id INT REFERENCES branch(id),
+--     head_id INT REFERENCES account_head(id),
+--     code VARCHAR(30) UNIQUE NOT NULL,
+--     name VARCHAR(100) NOT NULL,
+--     account_no VARCHAR(50),
+--     opening_balance NUMERIC(14,2) DEFAULT 0,
+--     opening_balance_type VARCHAR(5) CHECK (opening_balance_type IN ('DEBIT','CREDIT')),
+--     status CHAR(1) DEFAULT 'A',
+--     created_by INT NOT NULL REFERENCES users(id),
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     updated_by INT REFERENCES users(id),
+--     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
+
+-- CREATE TABLE accounting_period (
+--     id SERIAL PRIMARY KEY,
+--     start_date DATE NOT NULL,
+--     end_date DATE NOT NULL,
+--     is_closed BOOLEAN DEFAULT FALSE,
+--     created_by INT NOT NULL REFERENCES users(id),
+--   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--   updated_by INT REFERENCES users(id),
+--   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
+-- CREATE TABLE journal_entry (
+--     id SERIAL PRIMARY KEY,
+--     branch_id INT REFERENCES branch(id),
+--     entry_no VARCHAR(30) UNIQUE NOT NULL,
+--     entry_date DATE NOT NULL,
+--     period_id INT REFERENCES accounting_period(id),
+--     source_module VARCHAR(30), 
+--     source_id INT,
+--     narration TEXT,
+--    created_by INT NOT NULL REFERENCES users(id),
+--   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--   updated_by INT REFERENCES users(id),
+--   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
+-- CREATE TABLE journal_line (
+--     id SERIAL PRIMARY KEY,
+--     journal_entry_id INT REFERENCES journal_entry(id) ON DELETE CASCADE,
+--     account_id INT REFERENCES account(id),
+--     debit NUMERIC(14,2) DEFAULT 0,
+--     credit NUMERIC(14,2) DEFAULT 0,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     CHECK (debit >= 0 AND credit >= 0),
+--     CHECK (debit = 0 OR credit = 0)
+-- );
 CREATE TABLE account_head (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE NOT NULL,
@@ -446,14 +458,15 @@ CREATE TABLE journal_entry (
     UNIQUE(branch_id, entry_no)
 );
 CREATE TABLE journal_line (
-    id SERIAL PRIMARY KEY,
-    journal_entry_id INT REFERENCES journal_entry(id),
-    account_id INT REFERENCES account(id),
-    branch_id INT REFERENCES branch(id),
-    debit NUMERIC(14,2) DEFAULT 0,
-    credit NUMERIC(14,2) DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CHECK (debit >= 0 AND credit >= 0),
+    id               SERIAL PRIMARY KEY,
+    journal_entry_id INT            NOT NULL REFERENCES journal_entry(id) ON DELETE CASCADE,
+    account_id       INT            NOT NULL REFERENCES account(id),
+    branch_id        INT            NOT NULL REFERENCES branch(id),
+    debit            NUMERIC(14,2)  NOT NULL DEFAULT 0,
+    credit           NUMERIC(14,2)  NOT NULL DEFAULT 0,
+    description      TEXT,
+    created_at       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (debit > 0 OR credit > 0),
     CHECK (NOT (debit > 0 AND credit > 0))
 );
 
@@ -530,18 +543,7 @@ CREATE TABLE delivery_method (
   updated_by INT REFERENCES users(id),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE payment_method (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(30) UNIQUE NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    type VARCHAR(20) CHECK (type IN ('CASH','CARD','BANK','MOBILE','ONLINE','COD')),
-    provider VARCHAR(50),
-    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
-    created_by INT NOT NULL REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_by INT REFERENCES users(id),
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+
 CREATE TABLE order_online (
     id SERIAL PRIMARY KEY,
     code VARCHAR(30) UNIQUE NOT NULL,
