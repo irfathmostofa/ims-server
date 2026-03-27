@@ -404,6 +404,114 @@ CREATE TABLE account_head (
     updated_by INT,
     updated_at TIMESTAMP
 );
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('1000', 'Assets',      'ASSET',     NULL, 'A', 1),
+('2000', 'Liabilities', 'LIABILITY', NULL, 'A', 1),
+('3000', 'Equity',      'EQUITY',    NULL, 'A', 1),
+('4000', 'Income',      'INCOME',    NULL, 'A', 1),
+('5000', 'Expenses',    'EXPENSE',   NULL, 'A', 1);
+
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('1100', 'Current Assets',        'ASSET',     (SELECT id FROM account_head WHERE code = '1000'), 'A', 1),
+('1200', 'Fixed Assets',          'ASSET',     (SELECT id FROM account_head WHERE code = '1000'), 'A', 1),
+('1300', 'Other Assets',          'ASSET',     (SELECT id FROM account_head WHERE code = '1000'), 'A', 1),
+('2100', 'Current Liabilities',   'LIABILITY', (SELECT id FROM account_head WHERE code = '2000'), 'A', 1),
+('2200', 'Long-Term Liabilities', 'LIABILITY', (SELECT id FROM account_head WHERE code = '2000'), 'A', 1),
+('3100', 'Owner Equity',          'EQUITY',    (SELECT id FROM account_head WHERE code = '3000'), 'A', 1),
+('3200', 'Retained Earnings',     'EQUITY',    (SELECT id FROM account_head WHERE code = '3000'), 'A', 1),
+('4100', 'Sales Revenue',         'INCOME',    (SELECT id FROM account_head WHERE code = '4000'), 'A', 1),
+('4200', 'Other Income',          'INCOME',    (SELECT id FROM account_head WHERE code = '4000'), 'A', 1),
+('5100', 'Cost of Goods Sold',    'EXPENSE',   (SELECT id FROM account_head WHERE code = '5000'), 'A', 1),
+('5200', 'Operating Expenses',    'EXPENSE',   (SELECT id FROM account_head WHERE code = '5000'), 'A', 1),
+('5300', 'Payroll Expenses',      'EXPENSE',   (SELECT id FROM account_head WHERE code = '5000'), 'A', 1),
+('5400', 'Financial Expenses',    'EXPENSE',   (SELECT id FROM account_head WHERE code = '5000'), 'A', 1),
+('5500', 'Other Expenses',        'EXPENSE',   (SELECT id FROM account_head WHERE code = '5000'), 'A', 1);
+ 
+-- ── BATCH 3: Leaves (parent = sub-group) ─────────────────────────
+ 
+-- Current Assets
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('1110', 'Cash & Cash Equivalents', 'ASSET', (SELECT id FROM account_head WHERE code = '1100'), 'A', 1),
+('1120', 'Bank Accounts',           'ASSET', (SELECT id FROM account_head WHERE code = '1100'), 'A', 1),
+('1130', 'Mobile Banking',          'ASSET', (SELECT id FROM account_head WHERE code = '1100'), 'A', 1),
+('1140', 'Accounts Receivable',     'ASSET', (SELECT id FROM account_head WHERE code = '1100'), 'A', 1),
+('1150', 'Inventory',               'ASSET', (SELECT id FROM account_head WHERE code = '1100'), 'A', 1),
+('1160', 'Advance & Deposits',      'ASSET', (SELECT id FROM account_head WHERE code = '1100'), 'A', 1),
+('1170', 'Prepaid Expenses',        'ASSET', (SELECT id FROM account_head WHERE code = '1100'), 'A', 1);
+ 
+-- Fixed Assets
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('1210', 'Furniture & Fixtures',     'ASSET', (SELECT id FROM account_head WHERE code = '1200'), 'A', 1),
+('1220', 'Equipment & Machinery',    'ASSET', (SELECT id FROM account_head WHERE code = '1200'), 'A', 1),
+('1230', 'Computer & Technology',    'ASSET', (SELECT id FROM account_head WHERE code = '1200'), 'A', 1),
+('1240', 'Vehicles',                 'ASSET', (SELECT id FROM account_head WHERE code = '1200'), 'A', 1),
+('1250', 'Accumulated Depreciation', 'ASSET', (SELECT id FROM account_head WHERE code = '1200'), 'A', 1);
+ 
+-- Current Liabilities
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('2110', 'Accounts Payable',       'LIABILITY', (SELECT id FROM account_head WHERE code = '2100'), 'A', 1),
+('2120', 'Tax Payable',            'LIABILITY', (SELECT id FROM account_head WHERE code = '2100'), 'A', 1),
+('2130', 'VAT Payable',            'LIABILITY', (SELECT id FROM account_head WHERE code = '2100'), 'A', 1),
+('2140', 'Salary & Wages Payable', 'LIABILITY', (SELECT id FROM account_head WHERE code = '2100'), 'A', 1),
+('2150', 'Advance from Customers', 'LIABILITY', (SELECT id FROM account_head WHERE code = '2100'), 'A', 1),
+('2160', 'Short-Term Loans',       'LIABILITY', (SELECT id FROM account_head WHERE code = '2100'), 'A', 1);
+ 
+-- Long-Term Liabilities
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('2210', 'Long-Term Bank Loan', 'LIABILITY', (SELECT id FROM account_head WHERE code = '2200'), 'A', 1),
+('2220', 'Deferred Revenue',    'LIABILITY', (SELECT id FROM account_head WHERE code = '2200'), 'A', 1);
+ 
+-- Equity
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('3110', 'Owner Capital',                  'EQUITY', (SELECT id FROM account_head WHERE code = '3100'), 'A', 1),
+('3120', 'Owner Drawings',                 'EQUITY', (SELECT id FROM account_head WHERE code = '3100'), 'A', 1),
+('3210', 'Retained Earnings - Prior Years','EQUITY', (SELECT id FROM account_head WHERE code = '3200'), 'A', 1),
+('3220', 'Current Year Profit / Loss',     'EQUITY', (SELECT id FROM account_head WHERE code = '3200'), 'A', 1);
+ 
+-- Sales Revenue
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('4110', 'POS Sales Revenue',    'INCOME', (SELECT id FROM account_head WHERE code = '4100'), 'A', 1),
+('4120', 'Online Sales Revenue', 'INCOME', (SELECT id FROM account_head WHERE code = '4100'), 'A', 1),
+('4130', 'Service Revenue',      'INCOME', (SELECT id FROM account_head WHERE code = '4100'), 'A', 1),
+('4140', 'Sales Discount',       'INCOME', (SELECT id FROM account_head WHERE code = '4100'), 'A', 1);
+ 
+-- Other Income
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('4210', 'Interest Income',      'INCOME', (SELECT id FROM account_head WHERE code = '4200'), 'A', 1),
+('4220', 'Miscellaneous Income', 'INCOME', (SELECT id FROM account_head WHERE code = '4200'), 'A', 1);
+ 
+-- Cost of Goods Sold
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('5110', 'Cost of Goods Sold',    'EXPENSE', (SELECT id FROM account_head WHERE code = '5100'), 'A', 1),
+('5120', 'Purchase Returns',      'EXPENSE', (SELECT id FROM account_head WHERE code = '5100'), 'A', 1),
+('5130', 'Freight & Import Cost', 'EXPENSE', (SELECT id FROM account_head WHERE code = '5100'), 'A', 1);
+ 
+-- Operating Expenses
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('5210', 'Rent & Utilities',          'EXPENSE', (SELECT id FROM account_head WHERE code = '5200'), 'A', 1),
+('5220', 'Office & Admin Expenses',   'EXPENSE', (SELECT id FROM account_head WHERE code = '5200'), 'A', 1),
+('5230', 'Marketing & Advertising',   'EXPENSE', (SELECT id FROM account_head WHERE code = '5200'), 'A', 1),
+('5240', 'Depreciation Expense',      'EXPENSE', (SELECT id FROM account_head WHERE code = '5200'), 'A', 1),
+('5250', 'Repair & Maintenance',      'EXPENSE', (SELECT id FROM account_head WHERE code = '5200'), 'A', 1),
+('5260', 'Transportation & Delivery', 'EXPENSE', (SELECT id FROM account_head WHERE code = '5200'), 'A', 1);
+ 
+-- Payroll
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('5310', 'Salaries & Wages',     'EXPENSE', (SELECT id FROM account_head WHERE code = '5300'), 'A', 1),
+('5320', 'Bonuses & Allowances', 'EXPENSE', (SELECT id FROM account_head WHERE code = '5300'), 'A', 1),
+('5330', 'Provident Fund',       'EXPENSE', (SELECT id FROM account_head WHERE code = '5300'), 'A', 1);
+ 
+-- Financial Expenses
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('5410', 'Bank Charges & Fees',     'EXPENSE', (SELECT id FROM account_head WHERE code = '5400'), 'A', 1),
+('5420', 'Interest Expense',        'EXPENSE', (SELECT id FROM account_head WHERE code = '5400'), 'A', 1),
+('5430', 'Payment Gateway Charges', 'EXPENSE', (SELECT id FROM account_head WHERE code = '5400'), 'A', 1);
+ 
+-- Other Expenses
+INSERT INTO account_head (code, name, type, parent_id, status, created_by) VALUES
+('5510', 'Tax & Duties',          'EXPENSE', (SELECT id FROM account_head WHERE code = '5500'), 'A', 1),
+('5520', 'Miscellaneous Expense', 'EXPENSE', (SELECT id FROM account_head WHERE code = '5500'), 'A', 1);
+
 CREATE TABLE account (
     id SERIAL PRIMARY KEY,
     head_id INT NOT NULL REFERENCES account_head(id),
