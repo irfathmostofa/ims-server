@@ -12,11 +12,13 @@ import {
   deleteProduct,
   deleteProductBarcode,
   deleteProductCat,
+  deleteProductEnquiries,
   deleteProductImage,
   deleteProductReview,
   deleteProductVariant,
   deleteUOM,
   findProductByBarcode,
+  getAllProductEnquiries,
   getAllProducts,
   getAllProductsCategory,
   getBestSellingProducts,
@@ -37,6 +39,7 @@ import {
   updateProduct,
   updateProductBarcode,
   updateProductCat,
+  updateProductEnquiriesStatus,
   updateProductImage,
   updateProductReview,
   updateProductVariant,
@@ -134,7 +137,9 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post("/update-reviews", updateProductReview);
   app.post("/delete-reviews", deleteProductReview);
 
-
   // Product Enquiries
   app.post("/product-enquiries", createProductEnquiries);
+  app.post("/get-product-enquiries", getAllProductEnquiries);
+  app.post("/update-product-enquiry-status", updateProductEnquiriesStatus);
+  app.post("/delete-product-enquiries", deleteProductEnquiries);
 }

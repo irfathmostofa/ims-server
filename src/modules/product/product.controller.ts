@@ -3148,8 +3148,134 @@ export async function getAllProductEnquiries(
   reply: FastifyReply,
 ) {
   try {
-    const data = await productEnquiriesModel.findAll();
-    reply.send(successResponse(data, "Enquiries retrieved successfully"));
+    const { page = "1", limit = "10", search, status } = req.body as any;
+    const pageNum  = Math.max(1, parseInt(page));
+    const limitNum = Math.max(1, Math.min(parseInt(limit), 100));
+    const offset   = (pageNum - 1) * limitNum;
+
+    const conditions: string[] = ["1=1"];
+    const params:     any[]    = [];
+    let   idx = 1;
+
+    if (search) {
+      conditions.push(
+        `(pe.name ILIKE $${idx} OR pe.email ILIKE $${idx} OR pe.phone ILIKE $${idx} OR pe.message ILIKE $${idx})`,
+      );
+      params.push(`%${search}%`);
+      idx++;
+    }
+
+    if (status) {
+      conditions.push(`pe.status = $${idx}`);
+      params.push(status);
+      idx++;
+    }
+
+    const where = conditions.join(" AND ");
+
+    const query = `
+      SELECT
+        pe.*,
+
+        JSON_BUILD_OBJECT(
+          'id',            p.id,
+          'name',          p.name,
+          'code',          p.code,
+          'slug',          p.slug,
+          'selling_price', p.selling_price,
+          'regular_price', p.regular_price,
+          'image', (
+            SELECT i.url
+            FROM product_variant pv
+            JOIN product_image   i ON i.product_variant_id = pv.id
+            WHERE pv.product_id = p.id
+              AND pv.status     = 'A'
+              AND i.status      = 'A'
+              AND i.is_primary  = true
+            ORDER BY pv.id
+            LIMIT 1
+          ),
+
+          'sku', (
+            SELECT pv.sku
+            FROM product_variant pv
+            WHERE pv.product_id = p.id
+              AND pv.status     = 'A'
+            ORDER BY pv.id
+            LIMIT 1
+          ),
+
+          'category', (
+            SELECT JSON_BUILD_OBJECT(
+              'id',   c.id,
+              'name', c.name,
+              'slug', c.slug
+            )
+            FROM product_categories pc
+            JOIN category c ON c.id = pc.category_id
+            WHERE pc.product_id  = p.id
+              AND pc.is_primary  = true
+              AND c.status       = 'A'
+            LIMIT 1
+          )
+        ) AS product
+
+      FROM product_enquiries pe
+      JOIN product p ON p.id = pe.product_id
+      WHERE ${where}
+      ORDER BY pe.created_at DESC
+      LIMIT $${idx} OFFSET $${idx + 1}
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM product_enquiries pe
+      JOIN product p ON p.id = pe.product_id
+      WHERE ${where}
+    `;
+
+    // Params for main query include limit + offset at the end
+    const dataParams  = [...params, limitNum, offset];
+    // Count query uses same params minus limit/offset
+    const countParams = [...params];
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(query, dataParams),
+      pool.query(countQuery, countParams),
+    ]);
+
+    const data       = dataResult.rows;
+    const total      = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limitNum);
+
+    reply.send(
+      successResponse(
+        {
+          enquiries: data,
+          pagination: {
+            currentPage: pageNum,
+            limit:       limitNum,
+            total,
+            totalPages,
+            hasNextPage: offset + data.length < total,
+            hasPrevPage: pageNum > 1,
+          },
+        },
+        "Enquiries retrieved successfully",
+      ),
+    );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function updateProductEnquiriesStatus(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    const { id, status } = req.body as { id: number; status: string };
+    const updated = await productEnquiriesModel.update(id, { status });
+    reply.send(successResponse(updated, "Enquirie updated successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
