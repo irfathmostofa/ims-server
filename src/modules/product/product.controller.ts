@@ -9,6 +9,7 @@ import {
   productBarcodeModel,
   productCategoryModel,
   productCatModel,
+  productEnquiriesModel,
   productImageModel,
   productModel,
   productReviewImageModel,
@@ -17,6 +18,7 @@ import {
   UomModel,
 } from "./product.model";
 import pool from "../../config/db";
+import { EmailService } from "../../core/services/emailService";
 
 // ========== Product Category ==========
 export async function createProductCat(
@@ -2563,6 +2565,7 @@ export async function searchProducts(req: FastifyRequest, reply: FastifyReply) {
         p.id,
         p.code,
         p.name,
+        p.slug,
         p.description,
         p.cost_price,
         p.selling_price,
@@ -2585,6 +2588,7 @@ export async function searchProducts(req: FastifyRequest, reply: FastifyReply) {
           p.id,
           p.code,
           p.name,
+          p.slug,
           p.description,
           p.cost_price,
           p.selling_price,
@@ -2642,6 +2646,7 @@ export async function searchProducts(req: FastifyRequest, reply: FastifyReply) {
           p.id, 
           p.code, 
           p.name, 
+          p.slug,
           p.description, 
           p.cost_price, 
           p.selling_price, 
@@ -3094,6 +3099,69 @@ export async function deleteProductReview(
     const { id } = req.body as { id: number };
     const deleted = await productReviewModel.delete(id);
     reply.send(successResponse(deleted, "Product Review deleted successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function createProductEnquiries(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    const fields = req.body as Record<string, any>;
+    const product = await productModel.findById(fields.product_id);
+    const newData = await productEnquiriesModel.create(fields);
+
+    // Safely get the ID from multiple possible locations
+    const enquiryId = newData?.data?.id || newData?.id || newData?._id;
+
+    if (!enquiryId) {
+      throw new Error("Failed to get enquiry ID after creation");
+    }
+
+    const payload = {
+      enquiryId: enquiryId,
+      productName: product.name,
+      productSku: product.sku,
+      name: fields.name,
+      phone: fields.phone,
+      email: fields.email,
+      quantity: fields.quantity,
+      message: fields.message,
+    };
+
+    await EmailService.sendEnquiryConfirmation(
+      fields.email,
+      fields.name,
+      product.name,
+    );
+
+    await EmailService.sendEnquiryNotificationAdmin(payload);
+    reply.send(successResponse(newData, "Enquiry sent successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function getAllProductEnquiries(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    const data = await productEnquiriesModel.findAll();
+    reply.send(successResponse(data, "Enquiries retrieved successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function deleteProductEnquiries(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  try {
+    const { id } = req.body as { id: number };
+    const deleted = await productEnquiriesModel.delete(id);
+    reply.send(successResponse(deleted, "Enquirie deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }

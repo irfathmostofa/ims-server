@@ -74,3 +74,9 @@ export const productReviewImageModel = new CrudModel(
   [],
   [],
 );
+export const productEnquiriesModel = new CrudModel(
+  "product_enquiries",
+  ["product_id", "name", "phone", "message"],
+  [],
+  ["quantity", "email"],
+);

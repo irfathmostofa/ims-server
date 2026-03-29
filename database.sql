@@ -155,7 +155,18 @@ CREATE TABLE product_barcode (
     updated_by INT REFERENCES users(id),     
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+CREATE TABLE product_enquiries (
+  id            SERIAL PRIMARY KEY,
+  product_id    INTEGER       NOT NULL,
+  name          VARCHAR(150)  NOT NULL,
+  phone         VARCHAR(20)   NOT NULL,
+  email         VARCHAR(255),
+  quantity      INTEGER       NOT NULL DEFAULT 1,
+  message       TEXT          NOT NULL,
+  status        VARCHAR(20)   NOT NULL DEFAULT 'pending',  -- pending | read | replied | closed
+  created_at    TIMESTAMP     NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMP     NOT NULL DEFAULT NOW()
+);
 CREATE TABLE uom_conversion (   
     id SERIAL PRIMARY KEY,
     product_id INT REFERENCES product(id) ON DELETE CASCADE,

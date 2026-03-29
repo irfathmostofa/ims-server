@@ -5,6 +5,7 @@ import {
   bulkCreateProducts,
   createProduct,
   createProductCat,
+  createProductEnquiries,
   createProductReview,
   createProductVariant,
   createUOM,
@@ -132,4 +133,8 @@ export default async function productRoutes(app: FastifyInstance) {
   app.post("/get-customer-reviews", getCustomerProductReviews);
   app.post("/update-reviews", updateProductReview);
   app.post("/delete-reviews", deleteProductReview);
+
+
+  // Product Enquiries
+  app.post("/product-enquiries", createProductEnquiries);
 }
