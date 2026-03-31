@@ -7,6 +7,30 @@ import {
   seoMapModel,
 } from "./seo.model";
 
+// ========== UTILITY FUNCTIONS ==========
+
+/**
+ * Parse pagination and filter parameters
+ */
+const parsePaginationParams = (query: any) => {
+  const page = Math.max(1, parseInt(query.page) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(query.limit) || 10));
+  return { page, limit };
+};
+
+/**
+ * Handle errors consistently
+ */
+const handleError = (
+  reply: FastifyReply,
+  error: any,
+  message: string,
+  statusCode: number = 500,
+) => {
+  console.error(`[SEO Error]: ${message}`, error);
+  reply.code(statusCode).send(errorResponse(message));
+};
+
 // ========== SEO META CONTROLLERS ==========
 
 export async function createSeoMeta(
@@ -15,10 +39,21 @@ export async function createSeoMeta(
 ) {
   try {
     const data = request.body as Record<string, any>;
+
+    // Validate required fields
+    if (!data.entity_type || !data.entity_id) {
+      return handleError(
+        reply,
+        null,
+        "Entity type and entity ID are required",
+        400,
+      );
+    }
+
     const result = await seoMetaModel.create(data);
-    reply.send(successResponse(result, "SEO meta created successfully"));
+    reply.code(201).send(successResponse(result, "SEO meta created successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to create SEO meta"));
+    handleError(reply, error, "Failed to create SEO meta");
   }
 }
 
@@ -28,37 +63,56 @@ export async function getSeoMeta(
 ) {
   try {
     const { id } = request.params;
-    const result = await seoMetaModel.findById(parseInt(id));
+    const parsedId = parseInt(id);
+
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
+    }
+
+    const result = await seoMetaModel.findById(parsedId);
 
     if (!result) {
-      return reply.send(errorResponse("SEO meta not found"));
+      return handleError(reply, null, "SEO meta not found", 404);
     }
 
     reply.send(successResponse(result, "SEO meta fetched successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch SEO meta"));
+    handleError(reply, error, "Failed to fetch SEO meta");
   }
 }
 
 export async function getAllSeoMeta(
   request: FastifyRequest<{
     Querystring: {
-      page?: number;
-      limit?: number;
+      page?: string;
+      limit?: string;
       entity_type?: string;
-      entity_id?: number;
+      entity_id?: string;
     };
   }>,
   reply: FastifyReply,
 ) {
   try {
-    const { page = 1, limit = 10, entity_type, entity_id } = request.query;
+    const { page, limit, entity_type, entity_id } = request.query;
+    const { page: parsedPage, limit: parsedLimit } = parsePaginationParams({
+      page,
+      limit,
+    });
 
     const filters: Record<string, any> = {};
     if (entity_type) filters.entity_type = entity_type;
-    if (entity_id) filters.entity_id = entity_id;
+    if (entity_id) {
+      const parsedEntityId = parseInt(entity_id);
+      if (!isNaN(parsedEntityId)) {
+        filters.entity_id = parsedEntityId;
+      }
+    }
 
-    const result = await seoMetaModel.findWithPagination(page, limit, filters);
+    const result = await seoMetaModel.findWithPagination(
+      parsedPage,
+      parsedLimit,
+      filters,
+    );
     const total = await seoMetaModel.count(filters);
 
     reply.send(
@@ -66,17 +120,17 @@ export async function getAllSeoMeta(
         {
           data: result,
           pagination: {
-            page,
-            limit,
+            page: parsedPage,
+            limit: parsedLimit,
             total,
-            pages: Math.ceil(total / limit),
+            pages: Math.ceil(total / parsedLimit),
           },
         },
         "SEO meta list fetched successfully",
       ),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch SEO meta list"));
+    handleError(reply, error, "Failed to fetch SEO meta list");
   }
 }
 
@@ -87,16 +141,21 @@ export async function updateSeoMeta(
   try {
     const { id } = request.params;
     const data = request.body as Record<string, any>;
+    const parsedId = parseInt(id);
 
-    const existing = await seoMetaModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("SEO meta not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoMetaModel.update(parseInt(id), data);
-    reply.send(successResponse(result, "SEO meta updated successfully"));
+    const existing = await seoMetaModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "SEO meta not found", 404);
+    }
+
+    const result = await seoMetaModel.update(parsedId, data);
+    return reply.code(200).send(successResponse(result, "SEO meta updated successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to update SEO meta"));
+    handleError(reply, error, "Failed to update SEO meta");
   }
 }
 
@@ -106,20 +165,24 @@ export async function deleteSeoMeta(
 ) {
   try {
     const { id } = request.params;
+    const parsedId = parseInt(id);
 
-    const existing = await seoMetaModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("SEO meta not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoMetaModel.delete(parseInt(id));
-    reply.send(successResponse(result, "SEO meta deleted successfully"));
+    const existing = await seoMetaModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "SEO meta not found", 404);
+    }
+
+    const result = await seoMetaModel.delete(parsedId);
+    return reply.code(200).send(successResponse(result, "SEO meta deleted successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to delete SEO meta"));
+    handleError(reply, error, "Failed to delete SEO meta");
   }
 }
 
-// Get SEO by entity
 export async function getSeoByEntity(
   request: FastifyRequest<{
     Params: { entity_type: string; entity_id: string };
@@ -128,17 +191,27 @@ export async function getSeoByEntity(
 ) {
   try {
     const { entity_type, entity_id } = request.params;
+    const parsedEntityId = parseInt(entity_id);
+
+    if (isNaN(parsedEntityId)) {
+      return handleError(reply, null, "Invalid entity ID format", 400);
+    }
+
     const result = await seoMetaModel.findByField("entity_type", entity_type);
 
-    const entitySeo = result.filter(
-      (item: any) => item.entity_id === parseInt(entity_id),
+    if (!Array.isArray(result)) {
+      return reply.send(successResponse(null, "Entity SEO fetched successfully"));
+    }
+
+    const entitySeo = result.find(
+      (item: any) => item.entity_id === parsedEntityId,
     );
 
     reply.send(
-      successResponse(entitySeo[0] || null, "Entity SEO fetched successfully"),
+      successResponse(entitySeo || null, "Entity SEO fetched successfully"),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch entity SEO"));
+    handleError(reply, error, "Failed to fetch entity SEO");
   }
 }
 
@@ -150,10 +223,26 @@ export async function createSeoRedirect(
 ) {
   try {
     const data = request.body as Record<string, any>;
+
+    // Validate required fields
+    if (!data.old_url || !data.new_url) {
+      return handleError(
+        reply,
+        null,
+        "Old URL and new URL are required",
+        400,
+      );
+    }
+
+    // Set default redirect type if not provided
+    if (!data.redirect_type) {
+      data.redirect_type = 301;
+    }
+
     const result = await seoRedirectModel.create(data);
-    reply.send(successResponse(result, "Redirect created successfully"));
+    reply.code(201).send(successResponse(result, "Redirect created successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to create redirect"));
+    handleError(reply, error, "Failed to create redirect");
   }
 }
 
@@ -163,31 +252,44 @@ export async function getSeoRedirect(
 ) {
   try {
     const { id } = request.params;
-    const result = await seoRedirectModel.findById(parseInt(id));
+    const parsedId = parseInt(id);
+
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
+    }
+
+    const result = await seoRedirectModel.findById(parsedId);
 
     if (!result) {
-      return reply.send(errorResponse("Redirect not found"));
+      return handleError(reply, null, "Redirect not found", 404);
     }
 
     reply.send(successResponse(result, "Redirect fetched successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch redirect"));
+    handleError(reply, error, "Failed to fetch redirect");
   }
 }
 
 export async function getAllSeoRedirects(
   request: FastifyRequest<{
     Querystring: {
-      page?: number;
-      limit?: number;
+      page?: string;
+      limit?: string;
     };
   }>,
   reply: FastifyReply,
 ) {
   try {
-    const { page = 1, limit = 10 } = request.query;
+    const { page, limit } = request.query;
+    const { page: parsedPage, limit: parsedLimit } = parsePaginationParams({
+      page,
+      limit,
+    });
 
-    const result = await seoRedirectModel.findWithPagination(page, limit);
+    const result = await seoRedirectModel.findWithPagination(
+      parsedPage,
+      parsedLimit,
+    );
     const total = await seoRedirectModel.count();
 
     reply.send(
@@ -195,17 +297,17 @@ export async function getAllSeoRedirects(
         {
           data: result,
           pagination: {
-            page,
-            limit,
+            page: parsedPage,
+            limit: parsedLimit,
             total,
-            pages: Math.ceil(total / limit),
+            pages: Math.ceil(total / parsedLimit),
           },
         },
         "Redirects list fetched successfully",
       ),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch redirects list"));
+    handleError(reply, error, "Failed to fetch redirects list");
   }
 }
 
@@ -216,16 +318,21 @@ export async function updateSeoRedirect(
   try {
     const { id } = request.params;
     const data = request.body as Record<string, any>;
+    const parsedId = parseInt(id);
 
-    const existing = await seoRedirectModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("Redirect not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoRedirectModel.update(parseInt(id), data);
-    reply.send(successResponse(result, "Redirect updated successfully"));
+    const existing = await seoRedirectModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "Redirect not found", 404);
+    }
+
+    const result = await seoRedirectModel.update(parsedId, data);
+    return reply.code(200).send(successResponse(result, "Redirect updated successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to update redirect"));
+    handleError(reply, error, "Failed to update redirect");
   }
 }
 
@@ -235,31 +342,48 @@ export async function deleteSeoRedirect(
 ) {
   try {
     const { id } = request.params;
+    const parsedId = parseInt(id);
 
-    const existing = await seoRedirectModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("Redirect not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoRedirectModel.delete(parseInt(id));
-    reply.send(successResponse(result, "Redirect deleted successfully"));
+    const existing = await seoRedirectModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "Redirect not found", 404);
+    }
+
+    const result = await seoRedirectModel.delete(parsedId);
+    return reply.code(200).send(successResponse(result, "Redirect deleted successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to delete redirect"));
+    handleError(reply, error, "Failed to delete redirect");
   }
 }
 
-// Check redirect by old URL
 export async function checkRedirect(
   request: FastifyRequest<{ Querystring: { url: string } }>,
   reply: FastifyReply,
 ) {
   try {
     const { url } = request.query;
+
+    if (!url) {
+      return handleError(reply, null, "URL is required", 400);
+    }
+
     const result = await seoRedirectModel.findByField("old_url", url);
 
-    reply.send(successResponse(result[0] || null, "Redirect check completed"));
+    if (!Array.isArray(result)) {
+      return reply.send(
+        successResponse(null, "Redirect check completed"),
+      );
+    }
+
+    reply.send(
+      successResponse(result[0] || null, "Redirect check completed"),
+    );
   } catch (error) {
-    reply.send(errorResponse("Failed to check redirect"));
+    handleError(reply, error, "Failed to check redirect");
   }
 }
 
@@ -271,10 +395,16 @@ export async function createSeoKeyword(
 ) {
   try {
     const data = request.body as Record<string, any>;
+
+    // Validate required fields
+    if (!data.keyword) {
+      return handleError(reply, null, "Keyword is required", 400);
+    }
+
     const result = await seoKeywordModel.create(data);
-    reply.send(successResponse(result, "Keyword created successfully"));
+    reply.code(201).send(successResponse(result, "Keyword created successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to create keyword"));
+    handleError(reply, error, "Failed to create keyword");
   }
 }
 
@@ -284,39 +414,54 @@ export async function getSeoKeyword(
 ) {
   try {
     const { id } = request.params;
-    const result = await seoKeywordModel.findById(parseInt(id));
+    const parsedId = parseInt(id);
+
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
+    }
+
+    const result = await seoKeywordModel.findById(parsedId);
 
     if (!result) {
-      return reply.send(errorResponse("Keyword not found"));
+      return handleError(reply, null, "Keyword not found", 404);
     }
 
     reply.send(successResponse(result, "Keyword fetched successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch keyword"));
+    handleError(reply, error, "Failed to fetch keyword");
   }
 }
 
 export async function getAllSeoKeywords(
   request: FastifyRequest<{
     Querystring: {
-      page?: number;
-      limit?: number;
+      page?: string;
+      limit?: string;
       entity_type?: string;
-      entity_id?: number;
+      entity_id?: string;
     };
   }>,
   reply: FastifyReply,
 ) {
   try {
-    const { page = 1, limit = 10, entity_type, entity_id } = request.query;
+    const { page, limit, entity_type, entity_id } = request.query;
+    const { page: parsedPage, limit: parsedLimit } = parsePaginationParams({
+      page,
+      limit,
+    });
 
     const filters: Record<string, any> = {};
     if (entity_type) filters.entity_type = entity_type;
-    if (entity_id) filters.entity_id = entity_id;
+    if (entity_id) {
+      const parsedEntityId = parseInt(entity_id);
+      if (!isNaN(parsedEntityId)) {
+        filters.entity_id = parsedEntityId;
+      }
+    }
 
     const result = await seoKeywordModel.findWithPagination(
-      page,
-      limit,
+      parsedPage,
+      parsedLimit,
       filters,
     );
     const total = await seoKeywordModel.count(filters);
@@ -326,17 +471,17 @@ export async function getAllSeoKeywords(
         {
           data: result,
           pagination: {
-            page,
-            limit,
+            page: parsedPage,
+            limit: parsedLimit,
             total,
-            pages: Math.ceil(total / limit),
+            pages: Math.ceil(total / parsedLimit),
           },
         },
         "Keywords list fetched successfully",
       ),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch keywords list"));
+    handleError(reply, error, "Failed to fetch keywords list");
   }
 }
 
@@ -347,16 +492,21 @@ export async function updateSeoKeyword(
   try {
     const { id } = request.params;
     const data = request.body as Record<string, any>;
+    const parsedId = parseInt(id);
 
-    const existing = await seoKeywordModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("Keyword not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoKeywordModel.update(parseInt(id), data);
-    reply.send(successResponse(result, "Keyword updated successfully"));
+    const existing = await seoKeywordModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "Keyword not found", 404);
+    }
+
+    const result = await seoKeywordModel.update(parsedId, data);
+    return reply.code(200).send(successResponse(result, "Keyword updated successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to update keyword"));
+    handleError(reply, error, "Failed to update keyword");
   }
 }
 
@@ -366,20 +516,24 @@ export async function deleteSeoKeyword(
 ) {
   try {
     const { id } = request.params;
+    const parsedId = parseInt(id);
 
-    const existing = await seoKeywordModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("Keyword not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoKeywordModel.delete(parseInt(id));
-    reply.send(successResponse(result, "Keyword deleted successfully"));
+    const existing = await seoKeywordModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "Keyword not found", 404);
+    }
+
+    const result = await seoKeywordModel.delete(parsedId);
+    return reply.code(200).send(successResponse(result, "Keyword deleted successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to delete keyword"));
+    handleError(reply, error, "Failed to delete keyword");
   }
 }
 
-// Get keywords by entity
 export async function getKeywordsByEntity(
   request: FastifyRequest<{
     Params: { entity_type: string; entity_id: string };
@@ -388,20 +542,32 @@ export async function getKeywordsByEntity(
 ) {
   try {
     const { entity_type, entity_id } = request.params;
+    const parsedEntityId = parseInt(entity_id);
+
+    if (isNaN(parsedEntityId)) {
+      return handleError(reply, null, "Invalid entity ID format", 400);
+    }
+
     const result = await seoKeywordModel.findByField(
       "entity_type",
       entity_type,
     );
 
+    if (!Array.isArray(result)) {
+      return reply.send(
+        successResponse([], "Entity keywords fetched successfully"),
+      );
+    }
+
     const entityKeywords = result.filter(
-      (item: any) => item.entity_id === parseInt(entity_id),
+      (item: any) => item.entity_id === parsedEntityId,
     );
 
     reply.send(
       successResponse(entityKeywords, "Entity keywords fetched successfully"),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch entity keywords"));
+    handleError(reply, error, "Failed to fetch entity keywords");
   }
 }
 
@@ -413,10 +579,21 @@ export async function createSeoSitemap(
 ) {
   try {
     const data = request.body as Record<string, any>;
+
+    // Validate required fields
+    if (!data.url) {
+      return handleError(reply, null, "URL is required", 400);
+    }
+
+    // Set default priority if not provided
+    if (data.priority === undefined || data.priority === null) {
+      data.priority = 0.5;
+    }
+
     const result = await seoMapModel.create(data);
-    reply.send(successResponse(result, "Sitemap entry created successfully"));
+    reply.code(201).send(successResponse(result, "Sitemap entry created successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to create sitemap entry"));
+    handleError(reply, error, "Failed to create sitemap entry");
   }
 }
 
@@ -426,35 +603,49 @@ export async function getSeoSitemap(
 ) {
   try {
     const { id } = request.params;
-    const result = await seoMapModel.findById(parseInt(id));
+    const parsedId = parseInt(id);
+
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
+    }
+
+    const result = await seoMapModel.findById(parsedId);
 
     if (!result) {
-      return reply.send(errorResponse("Sitemap entry not found"));
+      return handleError(reply, null, "Sitemap entry not found", 404);
     }
 
     reply.send(successResponse(result, "Sitemap entry fetched successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch sitemap entry"));
+    handleError(reply, error, "Failed to fetch sitemap entry");
   }
 }
 
 export async function getAllSeoSitemaps(
   request: FastifyRequest<{
     Querystring: {
-      page?: number;
-      limit?: number;
+      page?: string;
+      limit?: string;
       change_freq?: string;
     };
   }>,
   reply: FastifyReply,
 ) {
   try {
-    const { page = 1, limit = 10, change_freq } = request.query;
+    const { page, limit, change_freq } = request.query;
+    const { page: parsedPage, limit: parsedLimit } = parsePaginationParams({
+      page,
+      limit,
+    });
 
     const filters: Record<string, any> = {};
     if (change_freq) filters.change_freq = change_freq;
 
-    const result = await seoMapModel.findWithPagination(page, limit, filters);
+    const result = await seoMapModel.findWithPagination(
+      parsedPage,
+      parsedLimit,
+      filters,
+    );
     const total = await seoMapModel.count(filters);
 
     reply.send(
@@ -462,17 +653,17 @@ export async function getAllSeoSitemaps(
         {
           data: result,
           pagination: {
-            page,
-            limit,
+            page: parsedPage,
+            limit: parsedLimit,
             total,
-            pages: Math.ceil(total / limit),
+            pages: Math.ceil(total / parsedLimit),
           },
         },
         "Sitemap list fetched successfully",
       ),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch sitemap list"));
+    handleError(reply, error, "Failed to fetch sitemap list");
   }
 }
 
@@ -483,16 +674,21 @@ export async function updateSeoSitemap(
   try {
     const { id } = request.params;
     const data = request.body as Record<string, any>;
+    const parsedId = parseInt(id);
 
-    const existing = await seoMapModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("Sitemap entry not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoMapModel.update(parseInt(id), data);
-    reply.send(successResponse(result, "Sitemap entry updated successfully"));
+    const existing = await seoMapModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "Sitemap entry not found", 404);
+    }
+
+    const result = await seoMapModel.update(parsedId, data);
+    return reply.code(200).send(successResponse(result, "Sitemap entry updated successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to update sitemap entry"));
+    handleError(reply, error, "Failed to update sitemap entry");
   }
 }
 
@@ -502,53 +698,82 @@ export async function deleteSeoSitemap(
 ) {
   try {
     const { id } = request.params;
+    const parsedId = parseInt(id);
 
-    const existing = await seoMapModel.findById(parseInt(id));
-    if (!existing) {
-      return reply.send(errorResponse("Sitemap entry not found"));
+    if (isNaN(parsedId)) {
+      return handleError(reply, null, "Invalid ID format", 400);
     }
 
-    const result = await seoMapModel.delete(parseInt(id));
-    reply.send(successResponse(result, "Sitemap entry deleted successfully"));
+    const existing = await seoMapModel.findById(parsedId);
+    if (!existing) {
+      return handleError(reply, null, "Sitemap entry not found", 404);
+    }
+
+    const result = await seoMapModel.delete(parsedId);
+    return reply.code(200).send(successResponse(result, "Sitemap entry deleted successfully"));
   } catch (error) {
-    reply.send(errorResponse("Failed to delete sitemap entry"));
+    handleError(reply, error, "Failed to delete sitemap entry");
   }
 }
 
-// Get sitemap by URL
 export async function getSitemapByUrl(
   request: FastifyRequest<{ Querystring: { url: string } }>,
   reply: FastifyReply,
 ) {
   try {
     const { url } = request.query;
+
+    if (!url) {
+      return handleError(reply, null, "URL is required", 400);
+    }
+
     const result = await seoMapModel.findByField("url", url);
+
+    if (!Array.isArray(result)) {
+      return reply.send(
+        successResponse(null, "Sitemap URL check completed"),
+      );
+    }
 
     reply.send(
       successResponse(result[0] || null, "Sitemap URL check completed"),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch sitemap by URL"));
+    handleError(reply, error, "Failed to fetch sitemap by URL");
   }
 }
 
-// Get sitemaps by priority range
 export async function getSitemapsByPriority(
   request: FastifyRequest<{
     Querystring: {
-      min_priority?: number;
-      max_priority?: number;
+      min_priority?: string;
+      max_priority?: string;
     };
   }>,
   reply: FastifyReply,
 ) {
   try {
-    const { min_priority = 0, max_priority = 1 } = request.query;
+    const minPriority = parseFloat(request.query.min_priority || "0");
+    const maxPriority = parseFloat(request.query.max_priority || "1");
+
+    if (isNaN(minPriority) || isNaN(maxPriority)) {
+      return handleError(
+        reply,
+        null,
+        "Invalid priority values (must be numbers between 0 and 1)",
+        400,
+      );
+    }
 
     const allSitemaps = await seoMapModel.findAll();
+
+    if (!Array.isArray(allSitemaps)) {
+      return reply.send(successResponse([], "Sitemaps by priority fetched successfully"));
+    }
+
     const filteredSitemaps = allSitemaps.filter(
       (item: any) =>
-        item.priority >= min_priority && item.priority <= max_priority,
+        item.priority >= minPriority && item.priority <= maxPriority,
     );
 
     reply.send(
@@ -558,6 +783,6 @@ export async function getSitemapsByPriority(
       ),
     );
   } catch (error) {
-    reply.send(errorResponse("Failed to fetch sitemaps by priority"));
+    handleError(reply, error, "Failed to fetch sitemaps by priority");
   }
 }
