@@ -98,7 +98,6 @@ export async function getAllSeoMeta(
       page,
       limit,
     });
-
     const filters: Record<string, any> = {};
     if (entity_type) filters.entity_type = entity_type;
     if (entity_id) {
@@ -107,7 +106,6 @@ export async function getAllSeoMeta(
         filters.entity_id = parsedEntityId;
       }
     }
-
     const result = await seoMetaModel.findWithPagination(
       parsedPage,
       parsedLimit,
