@@ -4,7 +4,7 @@ import { CrudModel } from "../../core/models/crud.model";
 export const seoMetaModel = new CrudModel(
   "seo_meta",
   ["entity_type", "entity_id"], // required fields
-  ["entity_type", "entity_id"], // unique constraint (composite unique)
+  ["", ""], // unique constraint (composite unique)
   [
     "meta_title",
     "meta_description",
