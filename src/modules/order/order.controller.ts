@@ -132,19 +132,19 @@ export async function createOnlineOrder(
     }
 
     // Create delivery record
-    await orderDeliveryModel.create(
-      {
-        order_id: orderId,
-        delivery_method_id,
-        tracking_code: null,
-        delivery_status: is_cod ? "ASSIGNED" : "ASSIGNED", // Changed for online payment
-        cod_amount: is_cod ? netAmount : 0,
-        cod_collected: false,
-        status: "A",
-        created_by: userId,
-      },
-      client,
-    );
+    // await orderDeliveryModel.create(
+    //   {
+    //     order_id: orderId,
+    //     delivery_method_id,
+    //     tracking_code: null,
+    //     delivery_status: is_cod ? "ASSIGNED" : "ASSIGNED", // Changed for online payment
+    //     cod_amount: is_cod ? netAmount : 0,
+    //     cod_collected: false,
+    //     status: "A",
+    //     created_by: userId,
+    //   },
+    //   client,
+    // );
 
     await client.query("COMMIT");
 

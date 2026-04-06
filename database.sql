@@ -647,22 +647,36 @@ CREATE TABLE customer_address (
     STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
     CREATION_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE delivery_method (
+CREATE TABLE delivery_methods (
     id SERIAL PRIMARY KEY,
     code VARCHAR(30) UNIQUE NOT NULL,
     name VARCHAR(100) NOT NULL,
-    api_base_url TEXT,
-    api_key TEXT,
-    api_secret TEXT,
-    auth_token TEXT,
-    token_expiry TIMESTAMP,
-    STATUS VARCHAR(1) DEFAULT 'A' CHECK (STATUS IN ('A','I')),
+    type VARCHAR(50) CHECK (type IN ('courier', 'pickup', 'cod')),
+    estimated_days_min INT,
+    estimated_days_max INT,
+    is_active BOOLEAN DEFAULT true,
+    display_order INT DEFAULT 0,
+    config JSON, 
     created_by INT NOT NULL REFERENCES users(id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+CREATE TABLE payment_gateways (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    display_name VARCHAR(100),
+    display_icon TEXT,
+    gateway_type VARCHAR(50),
+    is_active BOOLEAN DEFAULT false,
+    config JSON,
+    display_order INT DEFAULT 0,
+    created_by INT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE order_online (
     id SERIAL PRIMARY KEY,
     code VARCHAR(30) UNIQUE NOT NULL,
@@ -707,6 +721,7 @@ CREATE TABLE order_delivery (
   updated_by INT REFERENCES users(id),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 CREATE TABLE order_payment_online (
     id SERIAL PRIMARY KEY,
     order_id INT REFERENCES order_online(id),
@@ -717,7 +732,6 @@ CREATE TABLE order_payment_online (
     provider_response JSONB,
     paid_at TIMESTAMP,
     record_status VARCHAR(1) DEFAULT 'A' CHECK (record_status IN ('A','I')),
-    created_by INT REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE customer_items (

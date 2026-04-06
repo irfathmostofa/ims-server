@@ -62,7 +62,6 @@ export const orderPaymentOnlineModel = new CrudModel(
     "provider_response",
     "paid_at",
     "record_status",
-    "created_by",
     "creation_date",
   ],
 );
