@@ -13,7 +13,6 @@ import {
   productVariantModel,
   productBarcodeModel,
   productImageModel,
-  productCatModel,
 } from "./product.model";
 
 type Variant = {
@@ -34,6 +33,7 @@ type ProductData = {
   status?: string;
   uom_id?: number;
   cost_price?: number;
+  regular_price?: number; // Added regular_price
   selling_price?: number;
   categories?: { name: string; is_primary?: boolean }[];
   variants?: Variant[];
@@ -45,9 +45,11 @@ type ProductPreview = {
   product_name: string;
   category: string;
   variant: Variant;
-  uom_id?: number | null;
-  cost_price?: number | string | null;
-  selling_price?: number | string | null;
+  uom_name?: string;
+  cost_price?: number | null;
+  regular_price?: number | null; // Added regular_price
+  selling_price?: number | null;
+  stock_quantity?: number;
 };
 
 // ------------------- HELPER: parse CSV / XLSX -------------------
@@ -57,7 +59,7 @@ async function parseFile(file: any): Promise<any[]> {
 
   if (filename.endsWith(".csv")) {
     const csvString = buffer.toString("utf-8");
-    const parsed = parse(csvString, { header: true });
+    const parsed = parse(csvString, { header: true, skipEmptyLines: true });
     return parsed.data as any[];
   } else if (filename.endsWith(".xlsx")) {
     const workbook = XLSX.read(buffer, { type: "buffer" });
@@ -69,9 +71,49 @@ async function parseFile(file: any): Promise<any[]> {
   }
 }
 
-// ------------------- HELPER: GET OR CREATE CATEGORY -------------------
-// ------------------- HELPER: GET OR CREATE CATEGORY -------------------
-// Alternative if findByField has issues:
+// ------------------- HELPER: GET OR CREATE UOM (Case-Insensitive) -------------------
+async function getOrCreateUOM(nameOrSymbol: string, userId: number) {
+  if (!nameOrSymbol || nameOrSymbol.trim() === "") return null;
+
+  const trimmedValue = nameOrSymbol.trim().toUpperCase();
+  const client = await pool.connect();
+
+  try {
+    const findQuery = `
+      SELECT * FROM uom 
+      WHERE LOWER(name) = LOWER($1) OR LOWER(symbol) = LOWER($1)
+      LIMIT 1
+    `;
+    const findResult = await client.query(findQuery, [trimmedValue]);
+
+    if (findResult.rows.length > 0) {
+      return findResult.rows[0];
+    }
+
+    const code = await generatePrefixedId("uom", "UOM");
+    const insertQuery = `
+      INSERT INTO uom (code, name, symbol, created_by) 
+      VALUES ($1, $2, $3, $4) 
+      RETURNING *
+    `;
+
+    const insertResult = await client.query(insertQuery, [
+      code,
+      trimmedValue,
+      trimmedValue,
+      userId,
+    ]);
+
+    return insertResult.rows[0];
+  } catch (error) {
+    console.error(`Error getting/creating UOM "${trimmedValue}":`, error);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+// ------------------- HELPER: GET OR CREATE CATEGORY (Case-Insensitive) -------------------
 async function getOrCreateCategory(name: string, userId: number) {
   if (!name || name.trim() === "") return null;
 
@@ -79,25 +121,26 @@ async function getOrCreateCategory(name: string, userId: number) {
   const client = await pool.connect();
 
   try {
-    // Use raw query to find category
-    const findQuery = "SELECT * FROM category WHERE name = $1 LIMIT 1";
+    const findQuery =
+      "SELECT * FROM category WHERE LOWER(name) = LOWER($1) LIMIT 1";
     const findResult = await client.query(findQuery, [trimmedName]);
 
     if (findResult.rows.length > 0) {
       return findResult.rows[0];
     }
 
-    // Create new category
     const code = await generatePrefixedId("category", "PCAT");
+    const slug = slugify(trimmedName);
     const insertQuery = `
-      INSERT INTO category (code, name, created_by) 
-      VALUES ($1, $2, $3) 
+      INSERT INTO category (code, name, slug, created_by) 
+      VALUES ($1, $2, $3, $4) 
       RETURNING *
     `;
 
     const insertResult = await client.query(insertQuery, [
       code,
       trimmedName,
+      slug,
       userId,
     ]);
 
@@ -109,6 +152,7 @@ async function getOrCreateCategory(name: string, userId: number) {
     client.release();
   }
 }
+
 // ------------------- VALIDATE PRODUCT DATA -------------------
 function validateProductData(data: Partial<ProductData>): string[] {
   const errors: string[] = [];
@@ -118,6 +162,8 @@ function validateProductData(data: Partial<ProductData>): string[] {
     errors.push("UOM ID is required");
   if (data.cost_price === undefined || data.cost_price === null)
     errors.push("Cost price is required");
+  if (data.regular_price === undefined || data.regular_price === null)
+    errors.push("Regular price is required");
   if (data.selling_price === undefined || data.selling_price === null)
     errors.push("Selling price is required");
 
@@ -127,7 +173,9 @@ function validateProductData(data: Partial<ProductData>): string[] {
 // ------------------- CREATE PRODUCT (USED INTERNALLY) -------------------
 export async function createProductInternal(
   productData: ProductData,
-  userId: number
+  userId: number,
+  branchId?: number,
+  stockQuantity: number = 0,
 ) {
   const client = await pool.connect();
 
@@ -152,6 +200,7 @@ export async function createProductInternal(
       slug: slugify(productData.name),
       uom_id: productData.uom_id!,
       cost_price: productData.cost_price!,
+      regular_price: productData.regular_price!, // Added regular_price from Excel
       selling_price: productData.selling_price!,
       status: productData.status,
       created_by: productData.created_by,
@@ -167,7 +216,7 @@ export async function createProductInternal(
 
           if (!catRecord || !catRecord.id) {
             console.warn(
-              `Skipping category "${cat.name}" - could not get/create`
+              `Skipping category "${cat.name}" - could not get/create`,
             );
             continue;
           }
@@ -180,7 +229,6 @@ export async function createProductInternal(
           });
         } catch (catError) {
           console.error(`Error processing category "${cat.name}":`, catError);
-          // Continue with other categories
         }
       }
     }
@@ -205,10 +253,10 @@ export async function createProductInternal(
         additional_price: v.additional_price || 0,
         status: v.status || "A",
         created_by: userId,
-        weight: v.weight || null,
-        weight_unit: v.weight_unit || null,
-        is_replaceable: v.is_replaceable || false,
-        SKU: v.SKU || null,
+        weight: v.weight ?? null,
+        weight_unit: v.weight_unit ?? null,
+        is_replaceable: v.is_replaceable ?? false,
+        SKU: v.SKU ?? null,
       };
 
       const variant = await productVariantModel.create(variantData);
@@ -224,17 +272,43 @@ export async function createProductInternal(
         created_by: userId,
       });
 
+      // ------------------- INVENTORY STOCK -------------------
+      if (branchId && stockQuantity > 0) {
+        const stockCheck = await client.query(
+          `SELECT id FROM inventory_stock 
+           WHERE branch_id = $1 AND product_variant_id = $2`,
+          [branchId, variant.id],
+        );
+
+        if (stockCheck.rows.length > 0) {
+          await client.query(
+            `UPDATE inventory_stock 
+             SET quantity = quantity + $1 
+             WHERE branch_id = $2 AND product_variant_id = $3`,
+            [stockQuantity, branchId, variant.id],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity) 
+             VALUES ($1, $2, $3)`,
+            [branchId, variant.id, stockQuantity],
+          );
+        }
+      }
+
       // ------------------- IMAGES -------------------
-      for (const img of v.images || []) {
-        await productImageModel.create({
-          code: await generatePrefixedId("product_image", "IMG"),
-          product_variant_id: variant.id,
-          url: img.url,
-          alt_text: img.alt_text || "Product Image",
-          is_primary: img.is_primary || false,
-          status: "A",
-          created_by: userId,
-        });
+      if (v.images && v.images.length > 0) {
+        for (const img of v.images) {
+          await productImageModel.create({
+            code: await generatePrefixedId("product_image", "IMG"),
+            product_variant_id: variant.id,
+            url: img.url,
+            alt_text: img.alt_text || "Product Image",
+            is_primary: img.is_primary || false,
+            status: "A",
+            created_by: userId,
+          });
+        }
       }
     }
 
@@ -249,10 +323,9 @@ export async function createProductInternal(
 }
 
 // ------------------- BULK PREVIEW -------------------
-// Add UOM validation and category ID resolution
 export async function bulkProductPreview(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const file = await req.file();
@@ -260,11 +333,18 @@ export async function bulkProductPreview(
 
     const rows = await parseFile(file);
 
+    const validRows = rows.filter(
+      (row) =>
+        row &&
+        Object.keys(row).length > 0 &&
+        (row.product_name || row.variant_name || row.uom),
+    );
+
     const preview: ProductPreview[] = [];
     const errors: { row: number; error: string }[] = [];
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
+    for (let i = 0; i < validRows.length; i++) {
+      const row = validRows[i];
       const rowNum = i + 1;
 
       // Validate required fields
@@ -272,62 +352,70 @@ export async function bulkProductPreview(
         errors.push({ row: rowNum, error: "Product name required" });
       if (!row.variant_name)
         errors.push({ row: rowNum, error: "Variant name required" });
-      if (!row.uom_id && row.uom_id !== 0)
-        errors.push({ row: rowNum, error: "UOM ID required" });
-      if (!row.cost_price && row.cost_price !== 0)
-        errors.push({ row: rowNum, error: "Cost price required" });
-      if (!row.selling_price && row.selling_price !== 0)
-        errors.push({ row: rowNum, error: "Selling price required" });
-
-      // Check if UOM exists
-      if (row.uom_id) {
-        const uomExists = await pool.query("SELECT id FROM uom WHERE id = $1", [
-          parseInt(row.uom_id),
-        ]);
-        if (uomExists.rows.length === 0) {
-          errors.push({
-            row: rowNum,
-            error: `UOM ID ${row.uom_id} does not exist`,
-          });
-        }
-      }
+      if (!row.uom)
+        errors.push({
+          row: rowNum,
+          error: "UOM (Unit of Measurement) required",
+        });
+      if (
+        (!row.cost_price && row.cost_price !== 0) ||
+        isNaN(parseFloat(row.cost_price))
+      )
+        errors.push({ row: rowNum, error: "Valid cost price required" });
+      if (
+        (!row.regular_price && row.regular_price !== 0) ||
+        isNaN(parseFloat(row.regular_price))
+      )
+        errors.push({ row: rowNum, error: "Valid regular price required" });
+      if (
+        (!row.selling_price && row.selling_price !== 0) ||
+        isNaN(parseFloat(row.selling_price))
+      )
+        errors.push({ row: rowNum, error: "Valid selling price required" });
 
       // Parse numeric values
-      const uom_id = row.uom_id ? parseInt(row.uom_id) : null;
       const cost_price = row.cost_price ? parseFloat(row.cost_price) : null;
+      const regular_price = row.regular_price
+        ? parseFloat(row.regular_price)
+        : null;
       const selling_price = row.selling_price
         ? parseFloat(row.selling_price)
         : null;
       const additional_price = parseFloat(row.additional_price) || 0;
-      const weight = row.weight ? parseFloat(row.weight) : null;
+      const weight = row.weight ? parseFloat(row.weight) : undefined;
+      const stock_quantity = row.stock_quantity
+        ? parseFloat(row.stock_quantity)
+        : 0;
 
       // Parse images
-      const images = row.images
-        ? (row.images as string).split(",").map((url: string) => ({
-            url: url.trim(),
-            alt_text: `Image ${url.trim().substring(0, 10)}...`,
-            is_primary: false,
-          }))
-        : [];
-
-      // Add first image as primary if exists
-      if (images.length > 0) {
-        images[0].is_primary = true;
-      }
+      const images =
+        row.images && typeof row.images === "string"
+          ? (row.images as string)
+              .split(",")
+              .map((url: string, idx: number) => ({
+                url: url.trim(),
+                alt_text: `Image ${idx + 1}`,
+                is_primary: idx === 0,
+              }))
+          : [];
 
       preview.push({
         row: rowNum,
-        product_name: row.product_name,
-        category: row.category || "",
-        uom_id,
+        product_name: String(row.product_name).trim(),
+        category: row.category ? String(row.category).trim() : "",
+        uom_name: String(row.uom).trim(),
         cost_price,
+        regular_price,
         selling_price,
+        stock_quantity,
         variant: {
-          name: row.variant_name,
+          name: String(row.variant_name).trim(),
           additional_price,
-          SKU: row.SKU || undefined,
-          weight: row.weight,
-          weight_unit: row.weight_unit || undefined,
+          SKU: row.SKU ? String(row.SKU).trim() : undefined,
+          weight: weight,
+          weight_unit: row.weight_unit
+            ? String(row.weight_unit).trim()
+            : undefined,
           images,
         },
       });
@@ -336,8 +424,12 @@ export async function bulkProductPreview(
     reply.send({
       preview,
       errors,
-      total: rows.length,
+      total: validRows.length,
       valid: preview.length - errors.length,
+      message:
+        errors.length > 0
+          ? "Some rows have validation errors"
+          : "All rows valid",
     });
   } catch (err: any) {
     console.error("Preview error:", err);
@@ -348,31 +440,19 @@ export async function bulkProductPreview(
   }
 }
 
-// productBulkController.ts - Update bulkProductConfirm function
-
-// productBulkController.ts - Updated bulkProductConfirm function
-
+// ------------------- BULK CONFIRM -------------------
 export async function bulkProductConfirm(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    const body = req.body as { products: any[] };
+    const body = req.body as { products: any[]; branch_code?: string };
 
-    if (!body) {
-      console.error("ERROR: No request body");
-      return reply.status(400).send({
-        success: false,
-        message: "Request body is required",
-      });
-    }
-
-    if (!body.products || !Array.isArray(body.products)) {
-      console.error("ERROR: Invalid products array", body.products);
+    if (!body || !body.products || !Array.isArray(body.products)) {
       return reply.status(400).send({
         success: false,
         message: "Invalid request body. Expected { products: [] }",
@@ -380,7 +460,6 @@ export async function bulkProductConfirm(
     }
 
     if (body.products.length === 0) {
-      console.error("ERROR: Empty products array");
       return reply.status(400).send({
         success: false,
         message: "No products to create",
@@ -391,76 +470,97 @@ export async function bulkProductConfirm(
     const failedProducts: { product: string; error: string; row?: number }[] =
       [];
 
-    // Get user ID from request
     const userId = (req.user as { id: number } | null)?.id;
-
     if (!userId) {
-      return reply.status(400).send({
+      return reply.status(401).send({
         success: false,
-        message: "User ID is required",
+        message: "User not authenticated",
       });
+    }
+
+    let branchId = null;
+    const branchCode = body.branch_code || (req.user as any)?.branch_code;
+
+    if (branchCode) {
+      const branchResult = await client.query(
+        "SELECT id FROM branch WHERE code = $1 AND status = 'A'",
+        [branchCode],
+      );
+      if (branchResult.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: `Branch with code "${branchCode}" not found`,
+        });
+      }
+      branchId = branchResult.rows[0].id;
+    } else {
+      const defaultBranch = await client.query(
+        "SELECT id FROM branch WHERE is_default = true AND status = 'A' LIMIT 1",
+      );
+      if (defaultBranch.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          message: "No branch specified and no default branch found",
+        });
+      }
+      branchId = defaultBranch.rows[0].id;
     }
 
     for (let i = 0; i < body.products.length; i++) {
       const prod = body.products[i];
+      const rowNum = prod.row || i + 1;
 
       try {
-        // Validate product data
-        if (!prod.name && !prod.product_name) {
+        if (!prod.product_name) {
           throw new Error("Product name is required");
         }
 
-        const productName = prod.name || prod.product_name;
-
-        if (prod.uom_id === undefined || prod.uom_id === null) {
-          throw new Error(`UOM ID is required for product "${productName}"`);
-        }
-
-        // Check if UOM exists
-        const uomExists = await client.query(
-          "SELECT id FROM uom WHERE id = $1",
-          [Number(prod.uom_id)]
-        );
-
-        if (uomExists.rows.length === 0) {
+        if (!prod.uom_name) {
           throw new Error(
-            `UOM ID ${prod.uom_id} does not exist for product "${productName}"`
+            `UOM (Unit of Measurement) is required for product "${prod.product_name}"`,
           );
         }
 
-        if (prod.cost_price === undefined || prod.cost_price === null) {
+        if (
+          prod.cost_price === undefined ||
+          prod.cost_price === null ||
+          isNaN(parseFloat(prod.cost_price))
+        ) {
           throw new Error(
-            `Cost price is required for product "${productName}"`
+            `Valid cost price is required for product "${prod.product_name}"`,
           );
         }
 
-        if (prod.selling_price === undefined || prod.selling_price === null) {
+        if (
+          prod.regular_price === undefined ||
+          prod.regular_price === null ||
+          isNaN(parseFloat(prod.regular_price))
+        ) {
           throw new Error(
-            `Selling price is required for product "${productName}"`
+            `Valid regular price is required for product "${prod.product_name}"`,
           );
         }
 
-        // Resolve categories
+        if (
+          prod.selling_price === undefined ||
+          prod.selling_price === null ||
+          isNaN(parseFloat(prod.selling_price))
+        ) {
+          throw new Error(
+            `Valid selling price is required for product "${prod.product_name}"`,
+          );
+        }
+
+        const uomRecord = await getOrCreateUOM(prod.uom_name, userId);
+        if (!uomRecord) {
+          throw new Error(`Could not find or create UOM "${prod.uom_name}"`);
+        }
+
         const categories = [];
-        if (prod.categories && Array.isArray(prod.categories)) {
-          for (const cat of prod.categories) {
-            if (cat.name && cat.name.trim() !== "") {
-              const categoryRecord = await getOrCreateCategory(
-                cat.name,
-                userId
-              );
-              if (categoryRecord) {
-                categories.push({
-                  name: cat.name,
-                  is_primary: cat.is_primary || false,
-                });
-              }
-            }
-          }
-        } else if (prod.category && prod.category.trim() !== "") {
+        if (prod.category && prod.category.trim() !== "") {
           const categoryRecord = await getOrCreateCategory(
             prod.category,
-            userId
+            userId,
           );
           if (categoryRecord) {
             categories.push({
@@ -470,31 +570,53 @@ export async function bulkProductConfirm(
           }
         }
 
-        const productData: ProductData = {
-          name: productName,
-          slug: slugify(productName),
-          uom_id: Number(prod.uom_id),
-          cost_price: Number(prod.cost_price),
-          selling_price: Number(prod.selling_price),
-          categories: categories,
-          variants:
-            prod.variants || (prod.variant ? [prod.variant] : undefined),
-          status: prod.status || "A",
+        const stockQuantity = parseFloat(prod.stock_quantity) || 0;
+
+        const variant: Variant = {
+          name: prod.variant_name || prod.product_name,
+          additional_price: parseFloat(prod.additional_price) || 0,
+          SKU: prod.SKU || undefined,
+          weight: prod.weight ? parseFloat(prod.weight) : undefined,
+          weight_unit: prod.weight_unit || undefined,
+          images: prod.images || [],
         };
 
-        const product = await createProductInternal(productData, userId);
+        const productData: ProductData = {
+          name: prod.product_name,
+          slug: slugify(prod.product_name),
+          uom_id: uomRecord.id,
+          cost_price: parseFloat(prod.cost_price),
+          regular_price: parseFloat(prod.regular_price), // Added regular_price
+          selling_price: parseFloat(prod.selling_price),
+          categories: categories,
+          variants: [variant],
+          status: "A",
+        };
+
+        const product = await createProductInternal(
+          productData,
+          userId,
+          branchId,
+          stockQuantity,
+        );
 
         createdProducts.push({
           id: product.id,
           code: product.code,
           name: product.name,
+          variant: variant.name,
+          cost_price: productData.cost_price,
+          regular_price: productData.regular_price,
+          selling_price: productData.selling_price,
+          stock_added: stockQuantity,
+          branch: branchCode || "default",
         });
       } catch (err: any) {
-        console.error(`Error creating product ${i + 1}:`, err);
+        console.error(`Error creating product row ${rowNum}:`, err);
         failedProducts.push({
-          product: prod.name || prod.product_name || `Product ${i + 1}`,
+          product: prod.product_name || `Row ${rowNum}`,
           error: err.message,
-          row: i + 1,
+          row: rowNum,
         });
       }
     }
@@ -503,6 +625,7 @@ export async function bulkProductConfirm(
 
     reply.send({
       success: true,
+      message: `Successfully created ${createdProducts.length} products`,
       created_count: createdProducts.length,
       failed_count: failedProducts.length,
       createdProducts,
