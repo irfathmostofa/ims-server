@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { successResponse } from "../../core/utils/response";
+import { errorResponse, successResponse } from "../../core/utils/response";
 import { generatePrefixedId } from "../../core/models/idGenerator";
 
 import {
@@ -24,8 +24,24 @@ export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
   try {
     const fields = req.body as Record<string, any>;
     fields.code = await generatePrefixedId("company", "COM");
-    const newCompany = await companyModel.create(fields);
-    reply.send(successResponse(newCompany, "Company created successfully"));
+    const checkCompany = await companyModel.findAll();
+    if (checkCompany.length > 0) {
+      reply.status(409).send(errorResponse("Company Aready Exits"));
+    } else {
+      const newCompany = await companyModel.create(fields);
+      const branchData = [
+        "BR",
+        newCompany.id,
+        "Main Branch",
+        "Store",
+        newCompany.address,
+        newCompany.phone,
+      ];
+      const RoleData = ["ROLE-1", "Super Admin", "Can Access All"];
+      await brancheModel.create(branchData);
+      await roleModel.create(RoleData);
+      reply.send(successResponse("Company created successfully"));
+    }
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }

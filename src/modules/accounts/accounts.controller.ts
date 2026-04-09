@@ -320,7 +320,7 @@ export async function manualJournalTransaction(
     if (period.is_closed) {
       throw new Error("Cannot post journal in a closed accounting period");
     }
-
+    const userId = (req.user as any)?.id;
     const journal = await recordJournalTransaction({
       branch_id,
       period_id,
@@ -328,6 +328,7 @@ export async function manualJournalTransaction(
       source_module: "MANUAL_JOURNAL",
       narration,
       lines,
+      userId,
     });
 
     reply.send(
@@ -348,6 +349,7 @@ export async function recordJournalTransaction({
   source_id,
   narration,
   lines, // array: { account_id, debit?, credit? }
+  userId,
 }: {
   branch_id: number;
   period_id: number;
@@ -356,6 +358,7 @@ export async function recordJournalTransaction({
   source_id?: number;
   narration?: string;
   lines: Array<{ account_id: number; debit?: number; credit?: number }>;
+  userId: number;
 }) {
   if (!lines || lines.length === 0) {
     throw new Error("Journal lines cannot be empty");
@@ -384,18 +387,19 @@ export async function recordJournalTransaction({
     } = await client.query(
       `
       INSERT INTO journal_entry
-        (branch_id, period_id, code, entry_date, source_module, source_id, narration)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (branch_id, code, entry_date,period_id, source_module, source_id, narration,created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7,$8)
       RETURNING *
       `,
       [
         branch_id,
-        period_id,
         entryNo,
         entry_date,
+        period_id,
         source_module,
         source_id,
         narration,
+        userId,
       ],
     );
 
@@ -492,7 +496,6 @@ export async function getJournalEntries(
     const query = `
       SELECT 
         je.id,
-        je.code,
         je.entry_date,
         je.branch_id,
         je.period_id,

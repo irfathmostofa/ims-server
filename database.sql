@@ -28,7 +28,11 @@ CREATE TABLE role (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE, 
     name VARCHAR(50) NOT NULL,
-    description TEXT
+    description TEXT,
+    access JSONB,
+    status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE users (
@@ -42,7 +46,10 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     role_id INT REFERENCES role(id),
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT REFERENCES users(id),    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE party (
     id SERIAL PRIMARY KEY,
@@ -56,7 +63,10 @@ CREATE TABLE party (
     credit_limit DECIMAL(12,2) DEFAULT 0,
     loyalty_points INT DEFAULT 0,
     status VARCHAR(1) DEFAULT 'A' CHECK (status IN ('A','I')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_by INT REFERENCES users(id),    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT REFERENCES users(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE category (
     id SERIAL PRIMARY KEY,
@@ -359,7 +369,7 @@ CREATE TABLE payments (
 --     name VARCHAR(100) NOT NULL,
 --     account_no VARCHAR(50),
 --     opening_balance NUMERIC(14,2) DEFAULT 0,
---     opening_balance_type VARCHAR(5) CHECK (opening_balance_type IN ('DEBIT','CREDIT')),
+--     opening_balance_type VARCHAR(6) CHECK (opening_balance_type IN ('DEBIT','CREDIT')),
 --     status CHAR(1) DEFAULT 'A',
 --     created_by INT NOT NULL REFERENCES users(id),
 --     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
