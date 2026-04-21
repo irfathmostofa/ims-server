@@ -340,16 +340,39 @@ export async function getCustomerProfile(
 ) {
   try {
     const id = (req.user as any)?.id;
-    const customer = await customerModel.findById(id);
+    const query = `
+    SELECT  
+    customer.id,
+    customer.code,
+    customer.full_name,
+    customer.email,
+    customer.phone,
+    customer.status,
+    customer.creation_date,
+    ca.label,
+    ca.address_line,
+    ca.city,
+    ca.area,
+    ca.postal_code,
+    ca.is_default,
+    ca.status AS address_status 
+FROM 
+    customer 
+LEFT JOIN 
+    customer_address AS ca ON ca.customer_id = customer.id
+WHERE ca.is_default='TRUE' and customer.id=$1
+    `;
 
-    if (!customer) {
+    const { rows } = await pool.query(query, [id]);
+
+    if (!rows) {
       return reply.status(404).send({ message: "User not found" });
     }
-
+    const user = rows[0];
     reply.send({
       success: true,
       message: "Customer profile fetched successfully",
-      user: customer,
+      user: user,
     });
   } catch (err: any) {
     reply.status(500).send({ success: false, message: err.message });
