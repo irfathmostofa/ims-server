@@ -1038,6 +1038,7 @@ export async function getCustomerItems(
           p.cost_price as product_cost_price,
           p.selling_price as product_selling_price,
           p.regular_price as product_regular_price,
+          ist.quantity as stock,
           
           -- UOM details
           u.id as uom_id,
@@ -1083,6 +1084,8 @@ export async function getCustomerItems(
       LEFT JOIN uom u 
         ON p.uom_id = u.id 
         AND u.status = 'A'
+      LEFT JOIN inventory_stock ist 
+        ON pv.id = ist.product_variant_id 
       
       LEFT JOIN product_categories pc 
         ON p.id = pc.product_id 
@@ -1150,6 +1153,7 @@ export async function getCustomerItems(
         product_cost_price: item.product_cost_price,
         product_selling_price: item.product_selling_price,
         product_regular_price: item.product_regular_price,
+        stock: item.stock,
 
         // UOM info
         uom_id: item.uom_id,
