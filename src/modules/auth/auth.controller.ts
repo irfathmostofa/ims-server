@@ -340,34 +340,49 @@ export async function getCustomerProfile(
 ) {
   try {
     const id = (req.user as any)?.id;
+
+    console.log("Extracted ID:", id);
+    if (!id) {
+      return reply.status(401).send({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
     const query = `
-    SELECT  
-    customer.id,
-    customer.code,
-    customer.full_name,
-    customer.email,
-    customer.phone,
-    customer.status,
-    customer.creation_date,
-    ca.label,
-    ca.address_line,
-    ca.city,
-    ca.area,
-    ca.postal_code,
-    ca.is_default,
-    ca.status AS address_status 
-FROM 
-    customer 
-LEFT JOIN 
-    customer_address AS ca ON ca.customer_id = customer.id
-WHERE ca.is_default='TRUE' and customer.id=$1
-    `;
+          SELECT  
+            customer.id,
+            customer.code,
+            customer.full_name,
+            customer.email,
+            customer.phone,
+            customer.status,
+            customer.creation_date,
+            ca.label,
+            ca.address_line,
+            ca.city,
+            ca.area,
+            ca.postal_code,
+            ca.is_default,
+            ca.status AS address_status 
+          FROM 
+            customer 
+          LEFT JOIN 
+            customer_address AS ca 
+            ON ca.customer_id = customer.id and ca.is_default = true
+          WHERE 
+               customer.status='A' AND customer.id = $1
+        `;
 
     const { rows } = await pool.query(query, [id]);
 
-    if (!rows) {
-      return reply.status(404).send({ message: "User not found" });
+    if (rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        message: "User not found",
+      });
     }
+
     const user = rows[0];
     reply.send({
       success: true,
@@ -375,7 +390,10 @@ WHERE ca.is_default='TRUE' and customer.id=$1
       user: user,
     });
   } catch (err: any) {
-    reply.status(500).send({ success: false, message: err.message });
+    reply.status(500).send({
+      success: false,
+      message: err.message,
+    });
   }
 }
 

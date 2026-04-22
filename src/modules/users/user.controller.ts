@@ -64,7 +64,7 @@ export async function createCustomer(req: FastifyRequest, reply: FastifyReply) {
     // hash password
     customerData.password_hash = await bcrypt.hash(
       customerData.password_hash,
-      10
+      10,
     );
 
     customerData.code = await generatePrefixedId("customer", "CUS");
@@ -88,7 +88,7 @@ export async function updateCustomer(req: FastifyRequest, reply: FastifyReply) {
 }
 export async function updateCustomerPassword(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { email, password_hash } = req.body as {
@@ -108,7 +108,7 @@ export async function updateCustomerPassword(
     // Use raw query to update password
     const result = await pool.query(
       `UPDATE customer SET password_hash = $1 WHERE email = $2 RETURNING *`,
-      [hashedPassword, email]
+      [hashedPassword, email],
     );
 
     reply.send(successResponse(result, "Password updated successfully"));
@@ -128,7 +128,7 @@ export async function deleteCustomer(req: FastifyRequest, reply: FastifyReply) {
 
 export async function createCustomerAddress(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const AddressData = req.body as Record<string, any>;
@@ -141,7 +141,7 @@ export async function createCustomerAddress(
 }
 export async function updateCustomerAddress(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: number };
@@ -155,7 +155,7 @@ export async function updateCustomerAddress(
 
 export async function deleteCustomerAddress(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.body as { id: number };
@@ -168,10 +168,10 @@ export async function deleteCustomerAddress(
 
 export async function getCustomerAddress(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
-    const { id } = req.params as { id: number };
+    const id = (req.user as any)?.id;
     const address = await customerAddressModel.findByField("customer_id", id);
     reply.send(successResponse(address));
   } catch (err: any) {

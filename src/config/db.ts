@@ -5,11 +5,6 @@ const pool = new Pool({
   connectionString: ENV.DATABASE_URL,
 });
 
-export default pool;
-
-// import { Pool } from "pg";
-// import { ENV } from "./env";
-
 // const pool = new Pool({
 //   host: ENV.DB_HOST,
 //   port: ENV.DB_PORT,
@@ -22,4 +17,4 @@ export default pool;
 //   connectionTimeoutMillis: 2000,
 // });
 
-// export default pool;
+export default pool;
