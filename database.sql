@@ -68,10 +68,9 @@ CREATE TABLE party (
     updated_by INT REFERENCES users(id),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE category (
+CREATE TABLE brand (
     id SERIAL PRIMARY KEY,
     code VARCHAR(20) UNIQUE,
-    parent_id INT REFERENCES category(id),
     name VARCHAR(100) NOT NULL,
     slug VARCHAR(120) NOT NULL,
     image TEXT,
@@ -102,6 +101,7 @@ CREATE TABLE product (
     name VARCHAR(150) NOT NULL,
     slug VARCHAR(200) NOT NULL,
     description TEXT,
+    brand_id INT REFERENCES brand(id) ON DELETE CASCADE,
     cost_price DECIMAL(12,2) NOT NULL,
     selling_price DECIMAL(12,2) NOT NULL,
     regular_price DECIMAL(12,2) NOT NULL,

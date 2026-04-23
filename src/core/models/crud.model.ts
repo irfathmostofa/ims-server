@@ -68,7 +68,6 @@ export class CrudModel {
     return rows;
   }
 
-
   async findById(id: any, client?: any) {
     const queryRunner = client || pool;
     const { rows } = await queryRunner.query(
@@ -180,27 +179,45 @@ export class CrudModel {
     const queryRunner = client || pool;
     const offset = (page - 1) * limit;
     const values: any[] = [];
-    let i = 1;
+    let paramIndex = 1;
 
     let whereClause = "";
     if (Object.keys(filters).length > 0) {
       const conditions = Object.entries(filters).map(([key, value]) => {
         values.push(value);
-        return `${key} = $${i++}`;
+        return `${key} = $${paramIndex++}`;
       });
       whereClause = `WHERE ${conditions.join(" AND ")}`;
     }
 
-    const query = `
-      SELECT * FROM ${this.table}
-      ${whereClause}
-      ORDER BY id DESC
-      LIMIT $${i++} OFFSET $${i}
-    `;
+    // Get total count
+    const countQuery = `SELECT COUNT(*) FROM ${this.table} ${whereClause}`;
+    const countValues = values.slice(0, paramIndex - 1);
+    const countResult = await queryRunner.query(countQuery, countValues);
+    const total = parseInt(countResult.rows[0].count);
+
+    // Get paginated data
+    const dataQuery = `
+    SELECT * FROM ${this.table}
+    ${whereClause}
+    ORDER BY id DESC
+    LIMIT $${paramIndex++} OFFSET $${paramIndex}
+  `;
     values.push(limit, offset);
 
-    const { rows } = await queryRunner.query(query, values);
-    return rows;
+    const { rows } = await queryRunner.query(dataQuery, values);
+
+    return {
+      data: rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async findByDateRange(

@@ -5,6 +5,13 @@ export const productCatModel = new CrudModel(
   ["code"], // unique
   ["slug", "image", "parent_id"], // optional
 );
+
+export const brandModel = new CrudModel(
+  "brand",
+  ["code", "name"],
+  ["code"],
+  ["slug", "image", "created_by", "updated_by"],
+);
 export const UomModel = new CrudModel(
   "uom",
   ["code", "name", "symbol"],

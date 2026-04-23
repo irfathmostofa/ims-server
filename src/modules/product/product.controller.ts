@@ -6,6 +6,7 @@ import {
   slugify,
 } from "../../core/models/idGenerator";
 import {
+  brandModel,
   productBarcodeModel,
   productCategoryModel,
   productCatModel,
@@ -195,6 +196,50 @@ export async function deleteProductCat(
     reply.send(
       successResponse(deleted, "Product Category deleted successfully"),
     );
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function CreateBrand(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const fields = req.body as Record<string, any>;
+    fields.created_by = (req.user as { id: number }).id;
+
+    fields.code = await generatePrefixedId("brand", "BRAND");
+    if (!fields.slug || fields.slug.trim() === "") {
+      fields.slug = slugify(fields.name);
+    }
+    const newData = await brandModel.create(fields);
+    reply.send(successResponse(newData, "Brand created successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function getBrand(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const data = await brandModel.findAll();
+    reply.send(successResponse(data));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function updateBrand(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { id } = req.params as { id: number };
+    const fields = req.body as Record<string, any>;
+    fields.updated_by = (req.user as { id: number }).id;
+    const updated = await brandModel.update(id, fields);
+    reply.send(successResponse(updated, "Brand updated successfully"));
+  } catch (err: any) {
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+export async function deleteBrand(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { id } = req.body as { id: number };
+    const deleted = await brandModel.delete(id);
+    reply.send(successResponse(deleted, "Brand deleted successfully"));
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
   }
@@ -1497,9 +1542,11 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
         p.selling_price,
         p.regular_price,
         p.status,
+        p.brand_id,
         u.id AS uom_id,
         u.name AS uom_name,
         u.symbol AS uom_symbol,
+        brand.name AS brand_name,
 
         -- Categories
         COALESCE((
@@ -1599,6 +1646,7 @@ export async function getProductById(req: FastifyRequest, reply: FastifyReply) {
 
       FROM product p
       LEFT JOIN uom u ON u.id = p.uom_id
+      LEFT JOIN brand ON brand.id = p.brand_id
       WHERE p.id = $1;
     `;
 
@@ -3149,13 +3197,13 @@ export async function getAllProductEnquiries(
 ) {
   try {
     const { page = "1", limit = "10", search, status } = req.body as any;
-    const pageNum  = Math.max(1, parseInt(page));
+    const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.max(1, Math.min(parseInt(limit), 100));
-    const offset   = (pageNum - 1) * limitNum;
+    const offset = (pageNum - 1) * limitNum;
 
     const conditions: string[] = ["1=1"];
-    const params:     any[]    = [];
-    let   idx = 1;
+    const params: any[] = [];
+    let idx = 1;
 
     if (search) {
       conditions.push(
@@ -3235,7 +3283,7 @@ export async function getAllProductEnquiries(
     `;
 
     // Params for main query include limit + offset at the end
-    const dataParams  = [...params, limitNum, offset];
+    const dataParams = [...params, limitNum, offset];
     // Count query uses same params minus limit/offset
     const countParams = [...params];
 
@@ -3244,8 +3292,8 @@ export async function getAllProductEnquiries(
       pool.query(countQuery, countParams),
     ]);
 
-    const data       = dataResult.rows;
-    const total      = parseInt(countResult.rows[0].total);
+    const data = dataResult.rows;
+    const total = parseInt(countResult.rows[0].total);
     const totalPages = Math.ceil(total / limitNum);
 
     reply.send(
@@ -3254,7 +3302,7 @@ export async function getAllProductEnquiries(
           enquiries: data,
           pagination: {
             currentPage: pageNum,
-            limit:       limitNum,
+            limit: limitNum,
             total,
             totalPages,
             hasNextPage: offset + data.length < total,

@@ -3,12 +3,14 @@ import {
   addProductBarcode,
   addProductImage,
   bulkCreateProducts,
+  CreateBrand,
   createProduct,
   createProductCat,
   createProductEnquiries,
   createProductReview,
   createProductVariant,
   createUOM,
+  deleteBrand,
   deleteProduct,
   deleteProductBarcode,
   deleteProductCat,
@@ -22,6 +24,7 @@ import {
   getAllProducts,
   getAllProductsCategory,
   getBestSellingProducts,
+  getBrand,
   getCustomerProductReviews,
   getFilterCategories,
   getProductBarcodes,
@@ -36,6 +39,7 @@ import {
   getRecentProducts,
   getUOM,
   searchProducts,
+  updateBrand,
   updateProduct,
   updateProductBarcode,
   updateProductCat,
@@ -70,6 +74,14 @@ export default async function productRoutes(app: FastifyInstance) {
     { preHandler: [app.authenticate] },
     deleteProductCat,
   );
+  app.post("/create-brand", { preHandler: [app.authenticate] }, CreateBrand);
+  app.get("/get-brand", getBrand);
+  app.post(
+    "/update-brand/:id",
+    { preHandler: [app.authenticate] },
+    updateBrand,
+  );
+  app.post("/delete-brand", { preHandler: [app.authenticate] }, deleteBrand);
   // UOM
   app.post("/create-uom", { preHandler: [app.authenticate] }, createUOM);
   app.get("/get-uom", getUOM);
