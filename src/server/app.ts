@@ -43,8 +43,8 @@ app.register(fastifyOauth2, {
     },
     auth: fastifyOauth2.GOOGLE_CONFIGURATION,
   },
-  startRedirectPath: "/auth/google/login", // user clicks login → redirect to Google
-  callbackUri: "http://localhost:3000/auth/google/callback", // your backend callback URL
+  startRedirectPath: "/auth/google/login",
+  callbackUri: "http://localhost:3000/auth/google/callback",
 });
 
 // Routes
