@@ -23,7 +23,7 @@ export async function addStock(req: FastifyRequest, reply: FastifyReply) {
       DO UPDATE SET quantity = inventory_stock.quantity + $3
       RETURNING *
       `,
-      [branch_id, product_variant_id, quantity]
+      [branch_id, product_variant_id, quantity],
     );
 
     reply.send(successResponse(rows[0], "Stock updated successfully"));
@@ -120,7 +120,7 @@ export async function listStock(req: FastifyRequest, reply: FastifyReply) {
 }
 export async function createStockTransaction(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const {
@@ -150,11 +150,11 @@ export async function createStockTransaction(
       ON CONFLICT (branch_id, product_variant_id)
       DO UPDATE SET quantity = inventory_stock.quantity + $3
       `,
-      [branch_id, product_variant_id, qtyChange]
+      [branch_id, product_variant_id, qtyChange],
     );
 
     reply.send(
-      successResponse(transaction, "Stock transaction recorded successfully")
+      successResponse(transaction, "Stock transaction recorded successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -162,7 +162,7 @@ export async function createStockTransaction(
 }
 export async function createProductTransfer(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -192,7 +192,7 @@ export async function createProductTransfer(
         SET quantity = quantity - $1
         WHERE branch_id = $2 AND product_variant_id = $3
         `,
-        [item.quantity, from_branch_id, item.product_variant_id]
+        [item.quantity, from_branch_id, item.product_variant_id],
       );
 
       // Create stock transaction
@@ -209,7 +209,7 @@ export async function createProductTransfer(
     await client.query("COMMIT");
 
     reply.send(
-      successResponse(transfer, "Product transfer created successfully")
+      successResponse(transfer, "Product transfer created successfully"),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -220,7 +220,7 @@ export async function createProductTransfer(
 }
 export async function receiveProductTransfer(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -234,7 +234,7 @@ export async function receiveProductTransfer(
 
     const items = await productTransferItemsModel.findByField(
       "transfer_id",
-      id
+      id,
     );
 
     for (const item of items) {
@@ -246,7 +246,7 @@ export async function receiveProductTransfer(
         ON CONFLICT (branch_id, product_variant_id)
         DO UPDATE SET quantity = inventory_stock.quantity + $3
         `,
-        [transfer.to_branch_id, item.product_variant_id, item.quantity]
+        [transfer.to_branch_id, item.product_variant_id, item.quantity],
       );
 
       // Stock transaction
@@ -265,7 +265,7 @@ export async function receiveProductTransfer(
     await client.query("COMMIT");
 
     reply.send(
-      successResponse({ transfer_id: id }, "Transfer received successfully")
+      successResponse({ transfer_id: id }, "Transfer received successfully"),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -276,7 +276,7 @@ export async function receiveProductTransfer(
 }
 export async function cancelProductTransfer(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const { id } = req.params as { id: string };
@@ -287,7 +287,7 @@ export async function cancelProductTransfer(
 
     const items = await productTransferItemsModel.findByField(
       "transfer_id",
-      id
+      id,
     );
 
     // Return stock to source branch
@@ -298,7 +298,7 @@ export async function cancelProductTransfer(
         SET quantity = quantity + $1
         WHERE branch_id = $2 AND product_variant_id = $3
         `,
-        [item.quantity, transfer.from_branch_id, item.product_variant_id]
+        [item.quantity, transfer.from_branch_id, item.product_variant_id],
       );
 
       await stockTransactionModel.create({
@@ -314,7 +314,7 @@ export async function cancelProductTransfer(
     await productTransferModel.update(transfer.id, { status: "CANCELLED" });
 
     reply.send(
-      successResponse({ transfer_id: id }, "Transfer cancelled successfully")
+      successResponse({ transfer_id: id }, "Transfer cancelled successfully"),
     );
   } catch (err: any) {
     reply.status(400).send({ success: false, message: err.message });
@@ -388,35 +388,50 @@ export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    // Main query for stock adjustments
+    // Main query for daily product variant summary
     const query = `
       SELECT 
-        st.id,
-        st.branch_id,
-        b.name as branch_name,
-        b.code as branch_code,
+        DATE(st.created_at) as date,
         st.product_variant_id,
         p.name as product_name,
         p.code as product_code,
         pv.name as variant_name,
         pv.code as variant_code,
-        st.quantity,
-        st.direction,
-        st.type,
-        st.reference_id,
-        st.created_at
+        st.branch_id,
+        b.name as branch_name,
+        b.code as branch_code,
+        COALESCE(SUM(CASE WHEN st.direction = 'IN' THEN st.quantity::numeric ELSE 0 END), 0) as daily_total_in,
+        COALESCE(SUM(CASE WHEN st.direction = 'OUT' THEN st.quantity::numeric ELSE 0 END), 0) as daily_total_out,
+        COALESCE(SUM(CASE WHEN st.direction = 'IN' THEN st.quantity::numeric ELSE 0 END), 0) - 
+        COALESCE(SUM(CASE WHEN st.direction = 'OUT' THEN st.quantity::numeric ELSE 0 END), 0) as daily_net_change
       FROM stock_transaction st
       LEFT JOIN branch b ON st.branch_id = b.id
       LEFT JOIN product_variant pv ON st.product_variant_id = pv.id
       LEFT JOIN product p ON p.id = pv.product_id
       ${whereClause}
-      ORDER BY st.created_at DESC
+      GROUP BY 
+        DATE(st.created_at),
+        st.product_variant_id,
+        p.name,
+        p.code,
+        pv.name,
+        pv.code,
+        st.branch_id,
+        b.name,
+        b.code
+      ORDER BY 
+        DATE(st.created_at) DESC,
+        p.name ASC
       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
     `;
 
-    // Count query
+    // Count query for pagination
     const countQuery = `
-      SELECT COUNT(*) as total
+      SELECT COUNT(DISTINCT CONCAT(
+        DATE(st.created_at), '-',
+        st.product_variant_id, '-',
+        st.branch_id
+      )) as total
       FROM stock_transaction st
       LEFT JOIN branch b ON st.branch_id = b.id
       LEFT JOIN product_variant pv ON st.product_variant_id = pv.id
@@ -425,34 +440,41 @@ export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
     `;
 
     // Add pagination parameters
-    values.push(limitNum, offset);
-
-    // Get count values (without pagination params)
-    const countValues = values.slice(0, -2);
+    const queryValues = [...values, limitNum, offset];
 
     // Execute queries
     const [result, countResult] = await Promise.all([
-      pool.query(query, values),
-      pool.query(countQuery, countValues),
+      pool.query(query, queryValues),
+      pool.query(countQuery, values),
     ]);
 
     const total = parseInt(countResult.rows[0]?.total || 0);
     const totalPages = Math.ceil(total / limitNum);
 
-    // Calculate summary
-    let totalIn = 0;
-    let totalOut = 0;
+    // Calculate overall summary
+    let overallTotalIn = 0;
+    let overallTotalOut = 0;
 
     result.rows.forEach((row: any) => {
-      if (row.direction === "IN") {
-        totalIn += parseFloat(row.quantity);
-      } else if (row.direction === "OUT") {
-        totalOut += parseFloat(row.quantity);
-      }
+      overallTotalIn += parseFloat(row.daily_total_in || 0);
+      overallTotalOut += parseFloat(row.daily_total_out || 0);
     });
 
     const response = {
-      data: result.rows,
+      data: result.rows.map((row: any) => ({
+        date: row.date,
+        product_variant_id: row.product_variant_id,
+        product_name: row.product_name,
+        product_code: row.product_code,
+        variant_name: row.variant_name,
+        variant_code: row.variant_code,
+        branch_id: row.branch_id,
+        branch_name: row.branch_name,
+        branch_code: row.branch_code,
+        daily_total_in: parseFloat(row.daily_total_in || 0),
+        daily_total_out: parseFloat(row.daily_total_out || 0),
+        daily_net_change: parseFloat(row.daily_net_change || 0),
+      })),
       pagination: {
         current_page: pageNum,
         per_page: limitNum,
@@ -463,15 +485,14 @@ export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
       },
       summary: {
         total_records: result.rows.length,
-        total_items: total,
-        total_in: totalIn,
-        total_out: totalOut,
-        net_change: totalIn - totalOut,
+        total_in: overallTotalIn,
+        total_out: overallTotalOut,
+        net_change: overallTotalIn - overallTotalOut,
       },
     };
 
     reply.send(
-      successResponse(response, "Stock adjustments retrieved successfully")
+      successResponse(response, "Stock ledger retrieved successfully"),
     );
   } catch (err: any) {
     console.error("Stock adjustments error:", err);
@@ -481,7 +502,7 @@ export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
 
 export async function receivePurchaseStock(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   const { branch_id, product_variant_id, quantity, grn_id } = req.body as any;
@@ -513,7 +534,7 @@ export async function receivePurchaseStock(
     await client.query(
       `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
        VALUES ($1, $2, 'PURCHASE', $3, $4, 'IN')`,
-      [branch_id, product_variant_id, grn_id, quantity]
+      [branch_id, product_variant_id, grn_id, quantity],
     );
 
     // Update or Insert stock
@@ -522,14 +543,14 @@ export async function receivePurchaseStock(
        SET quantity = quantity + $1
        WHERE branch_id = $2 AND product_variant_id = $3
        RETURNING id`,
-      [quantity, branch_id, product_variant_id]
+      [quantity, branch_id, product_variant_id],
     );
 
     if (result.rowCount === 0) {
       await client.query(
         `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity)
          VALUES ($1, $2, $3)`,
-        [branch_id, product_variant_id, quantity]
+        [branch_id, product_variant_id, quantity],
       );
     }
 
@@ -562,7 +583,7 @@ export async function saleStock(req: FastifyRequest, reply: FastifyReply) {
     // Validate stock availability
     const stockRes = await client.query(
       `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
-      [branch_id, product_variant_id]
+      [branch_id, product_variant_id],
     );
 
     if (stockRes.rowCount === 0 || stockRes.rows[0].quantity < quantity) {
@@ -573,13 +594,13 @@ export async function saleStock(req: FastifyRequest, reply: FastifyReply) {
     await client.query(
       `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
        VALUES ($1, $2, 'SALE', $3, $4, 'OUT')`,
-      [branch_id, product_variant_id, sale_id, quantity]
+      [branch_id, product_variant_id, sale_id, quantity],
     );
 
     // Deduct from stock
     await client.query(
       `UPDATE inventory_stock SET quantity = quantity - $1 WHERE branch_id = $2 AND product_variant_id = $3`,
-      [quantity, branch_id, product_variant_id]
+      [quantity, branch_id, product_variant_id],
     );
 
     await client.query("COMMIT");
@@ -616,7 +637,7 @@ export async function transferStock(req: FastifyRequest, reply: FastifyReply) {
     // Check source stock
     const stock = await client.query(
       `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
-      [from_branch, product_variant_id]
+      [from_branch, product_variant_id],
     );
     if (stock.rowCount === 0 || stock.rows[0].quantity < quantity)
       throw new Error("Insufficient stock in source branch");
@@ -625,28 +646,28 @@ export async function transferStock(req: FastifyRequest, reply: FastifyReply) {
     await client.query(
       `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
        VALUES ($1, $2, 'TRANSFER', $3, $4, 'OUT')`,
-      [from_branch, product_variant_id, transfer_id, quantity]
+      [from_branch, product_variant_id, transfer_id, quantity],
     );
     await client.query(
       `UPDATE inventory_stock SET quantity = quantity - $1 WHERE branch_id = $2 AND product_variant_id = $3`,
-      [quantity, from_branch, product_variant_id]
+      [quantity, from_branch, product_variant_id],
     );
 
     // IN
     await client.query(
       `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
        VALUES ($1, $2, 'TRANSFER', $3, $4, 'IN')`,
-      [to_branch, product_variant_id, transfer_id, quantity]
+      [to_branch, product_variant_id, transfer_id, quantity],
     );
 
     const dest = await client.query(
       `UPDATE inventory_stock SET quantity = quantity + $1 WHERE branch_id = $2 AND product_variant_id = $3 RETURNING id`,
-      [quantity, to_branch, product_variant_id]
+      [quantity, to_branch, product_variant_id],
     );
     if (dest.rowCount === 0) {
       await client.query(
         `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity) VALUES ($1, $2, $3)`,
-        [to_branch, product_variant_id, quantity]
+        [to_branch, product_variant_id, quantity],
       );
     }
 
@@ -691,7 +712,7 @@ export async function adjustStock(req: FastifyRequest, reply: FastifyReply) {
     if (adjustment_type === "OUT") {
       const stock = await client.query(
         `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
-        [branch_id, product_variant_id]
+        [branch_id, product_variant_id],
       );
       if (stock.rowCount === 0 || stock.rows[0].quantity < quantity)
         throw new Error("Insufficient stock for adjustment OUT");
@@ -708,19 +729,25 @@ export async function adjustStock(req: FastifyRequest, reply: FastifyReply) {
         quantity,
         reason,
         user_id,
-      ]
+      ],
     );
 
     await client.query(
       `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
        VALUES ($1, $2, 'ADJUSTMENT', $3, $4, $5)`,
-      [branch_id, product_variant_id, adj.rows[0].id, quantity, adjustment_type]
+      [
+        branch_id,
+        product_variant_id,
+        adj.rows[0].id,
+        quantity,
+        adjustment_type,
+      ],
     );
 
     const op = adjustment_type === "IN" ? "+" : "-";
     await client.query(
       `UPDATE inventory_stock SET quantity = quantity ${op} $1 WHERE branch_id = $2 AND product_variant_id = $3`,
-      [quantity, branch_id, product_variant_id]
+      [quantity, branch_id, product_variant_id],
     );
 
     await client.query("COMMIT");
@@ -760,7 +787,7 @@ export async function returnStock(req: FastifyRequest, reply: FastifyReply) {
     if (direction === "OUT") {
       const stock = await client.query(
         `SELECT quantity FROM inventory_stock WHERE branch_id = $1 AND product_variant_id = $2`,
-        [branch_id, product_variant_id]
+        [branch_id, product_variant_id],
       );
       if (stock.rowCount === 0 || stock.rows[0].quantity < quantity)
         throw new Error("Not enough stock to return to supplier");
@@ -769,13 +796,13 @@ export async function returnStock(req: FastifyRequest, reply: FastifyReply) {
     await client.query(
       `INSERT INTO stock_transaction (branch_id, product_variant_id, type, reference_id, quantity, direction)
        VALUES ($1, $2, 'RETURN', $3, $4, $5)`,
-      [branch_id, product_variant_id, reference_id, quantity, direction]
+      [branch_id, product_variant_id, reference_id, quantity, direction],
     );
 
     const op = direction === "IN" ? "+" : "-";
     await client.query(
       `UPDATE inventory_stock SET quantity = quantity ${op} $1 WHERE branch_id = $2 AND product_variant_id = $3`,
-      [quantity, branch_id, product_variant_id]
+      [quantity, branch_id, product_variant_id],
     );
 
     await client.query("COMMIT");
@@ -790,7 +817,7 @@ export async function returnStock(req: FastifyRequest, reply: FastifyReply) {
 
 export async function createRequisition(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -822,7 +849,7 @@ export async function createRequisition(
         remarks,
         created_by: (req.user as any)?.id,
       },
-      client
+      client,
     );
 
     const requisitionId = requisition.id;
@@ -835,12 +862,12 @@ export async function createRequisition(
           product_variant_id: item.product_variant_id,
           requested_qty: item.requested_qty,
         },
-        client
+        client,
       );
     }
     await client.query("COMMIT");
     reply.send(
-      successResponse(requisition, "Requisition created successfully")
+      successResponse(requisition, "Requisition created successfully"),
     );
   } catch (err: any) {
     await client.query("ROLLBACK");
@@ -852,7 +879,7 @@ export async function createRequisition(
 }
 export async function getRequisitionById(
   req: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   try {
     const requisitionId = parseInt(req.params.id);
@@ -871,7 +898,7 @@ export async function getRequisitionById(
       LEFT JOIN branch tb ON r.to_branch_id = tb.id
       LEFT JOIN users u ON r.created_by = u.id
       WHERE r.id = $1`,
-      [requisitionId]
+      [requisitionId],
     );
 
     if (requisitionResult.rows.length === 0) {
@@ -899,7 +926,7 @@ export async function getRequisitionById(
       JOIN product p ON pv.product_id = p.id
       WHERE ri.requisition_id = $1
       ORDER BY ri.id`,
-      [requisitionId]
+      [requisitionId],
     );
 
     reply.send({
@@ -957,7 +984,7 @@ export async function getRequisition(req: FastifyRequest, reply: FastifyReply) {
       LEFT JOIN branch fb ON r.from_branch_id = fb.id
       LEFT JOIN branch tb ON r.to_branch_id = tb.id
       LEFT JOIN users u ON r.created_by = u.id
-     `
+     `,
     );
     if (requisitionResult.rows.length === 0) {
       return reply.status(404).send({
@@ -968,8 +995,8 @@ export async function getRequisition(req: FastifyRequest, reply: FastifyReply) {
     reply.send(
       successResponse(
         requisitionResult.rows,
-        "Requisition created successfully"
-      )
+        "Requisition created successfully",
+      ),
     );
   } catch (err: any) {
     console.error("Get requisition error:", err);
@@ -985,7 +1012,7 @@ export async function getRequisition(req: FastifyRequest, reply: FastifyReply) {
  */
 export async function updateRequisition(
   req: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -1004,7 +1031,7 @@ export async function updateRequisition(
     // Check if requisition exists
     const existingRequisition = await requisitionModel.findById(
       requisitionId,
-      client
+      client,
     );
     if (!existingRequisition) {
       return reply.status(404).send({
@@ -1038,7 +1065,7 @@ export async function updateRequisition(
       // Delete old items
       await client.query(
         "DELETE FROM requisition_items WHERE requisition_id = $1",
-        [requisitionId]
+        [requisitionId],
       );
 
       // Insert new items
@@ -1049,7 +1076,7 @@ export async function updateRequisition(
             product_variant_id: item.product_variant_id,
             requested_qty: item.requested_qty,
           },
-          client
+          client,
         );
       }
     }
@@ -1074,7 +1101,7 @@ export async function updateRequisition(
  */
 export async function deleteRequisition(
   req: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -1096,7 +1123,7 @@ export async function deleteRequisition(
       requisition.status === "COMPLETED"
     ) {
       throw new Error(
-        `Cannot delete requisition with status: ${requisition.status}`
+        `Cannot delete requisition with status: ${requisition.status}`,
       );
     }
     await requisitionModel.delete(requisitionId, client);
@@ -1130,7 +1157,7 @@ export async function approveAndTransferRequisition(
       remarks?: string;
     };
   }>,
-  reply: FastifyReply
+  reply: FastifyReply,
 ) {
   const client = await pool.connect();
   try {
@@ -1143,7 +1170,7 @@ export async function approveAndTransferRequisition(
     // 1. Get requisition details
     const requisitionResult = await client.query(
       "SELECT * FROM requisition WHERE id = $1",
-      [requisitionId]
+      [requisitionId],
     );
 
     if (requisitionResult.rows.length === 0) {
@@ -1185,7 +1212,7 @@ export async function approveAndTransferRequisition(
         status: "RECEIVED", // Auto-complete since we're processing immediately
         created_by: userId,
       },
-      client
+      client,
     );
 
     const transferId = transfer.id;
@@ -1193,7 +1220,7 @@ export async function approveAndTransferRequisition(
       `UPDATE requisition 
          SET approve_by = $1 
          WHERE id = $2`,
-      [userId, requisitionId]
+      [userId, requisitionId],
     );
     // 3. Process each approved item
     for (const item of approved_items) {
@@ -1208,14 +1235,14 @@ export async function approveAndTransferRequisition(
         `UPDATE requisition_items 
          SET approved_qty = $1 ,remarks=$2
          WHERE id = $3 AND requisition_id = $4`,
-        [approved_qty, remarks, requisition_item_id, requisitionId]
+        [approved_qty, remarks, requisition_item_id, requisitionId],
       );
 
       // 3.2 Check stock availability in source branch
       const stockCheck = await client.query(
         `SELECT quantity FROM inventory_stock 
          WHERE branch_id = $1 AND product_variant_id = $2`,
-        [fromBranchId, product_variant_id]
+        [fromBranchId, product_variant_id],
       );
 
       if (
@@ -1226,7 +1253,7 @@ export async function approveAndTransferRequisition(
           `Insufficient stock for product variant ID ${product_variant_id} in source branch. ` +
             `Available: ${
               stockCheck.rows[0]?.quantity || 0
-            }, Required: ${approved_qty}`
+            }, Required: ${approved_qty}`,
         );
       }
 
@@ -1237,7 +1264,7 @@ export async function approveAndTransferRequisition(
           product_variant_id,
           quantity: approved_qty,
         },
-        client
+        client,
       );
 
       // 3.4 Deduct stock from source branch
@@ -1245,7 +1272,7 @@ export async function approveAndTransferRequisition(
         `UPDATE inventory_stock 
          SET quantity = quantity - $1 
          WHERE branch_id = $2 AND product_variant_id = $3`,
-        [approved_qty, fromBranchId, product_variant_id]
+        [approved_qty, fromBranchId, product_variant_id],
       );
 
       // 3.5 Create stock transaction (OUT from source)
@@ -1258,7 +1285,7 @@ export async function approveAndTransferRequisition(
           quantity: approved_qty,
           direction: "OUT",
         },
-        client
+        client,
       );
 
       // 3.6 Add stock to destination branch
@@ -1268,7 +1295,7 @@ export async function approveAndTransferRequisition(
          ON CONFLICT (branch_id, product_variant_id)
          DO UPDATE SET quantity = inventory_stock.quantity + $3
          RETURNING *`,
-        [toBranchId, product_variant_id, approved_qty]
+        [toBranchId, product_variant_id, approved_qty],
       );
 
       // 3.7 Create stock transaction (IN to destination)
@@ -1281,7 +1308,7 @@ export async function approveAndTransferRequisition(
           quantity: approved_qty,
           direction: "IN",
         },
-        client
+        client,
       );
 
       // 3.8 Create stock adjustment records for audit trail
@@ -1290,7 +1317,7 @@ export async function approveAndTransferRequisition(
         `INSERT INTO stock_transaction 
          (branch_id, product_variant_id, type,reference_id, quantity, direction)
          VALUES ($1, $2, 'TRANSFER', $3, $4, 'OUT')`,
-        [fromBranchId, product_variant_id, transferId, approved_qty]
+        [fromBranchId, product_variant_id, transferId, approved_qty],
       );
 
       // Adjustment IN for destination branch
@@ -1298,7 +1325,7 @@ export async function approveAndTransferRequisition(
         `INSERT INTO stock_transaction 
          (branch_id, product_variant_id, type,reference_id, quantity, direction)
          VALUES ($1, $2, 'TRANSFER', $3, $4, 'IN')`,
-        [toBranchId, product_variant_id, transferId, approved_qty]
+        [toBranchId, product_variant_id, transferId, approved_qty],
       );
     }
 
@@ -1311,7 +1338,7 @@ export async function approveAndTransferRequisition(
         updated_by: userId,
         updated_at: new Date(),
       },
-      client
+      client,
     );
 
     await client.query("COMMIT");
@@ -1492,7 +1519,7 @@ export async function listTransfers(req: FastifyRequest, reply: FastifyReply) {
     };
 
     reply.send(
-      successResponse(response, "Transfers list retrieved successfully")
+      successResponse(response, "Transfers list retrieved successfully"),
     );
   } catch (err: any) {
     console.error("List transfers error:", err);
