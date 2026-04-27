@@ -21,6 +21,7 @@ import { themeRoutes } from "../modules/template/theme.routes";
 import marketingRoutes from "../modules/marketing/marketing.routes";
 import seoRoutes from "../modules/seo/seo.routes";
 import { DashboardRoutes } from "../modules/dashboard/dashboard.routes";
+import { notificationRoutes } from "../modules/notifications/Notification.routes";
 
 dotenv.config();
 
@@ -64,4 +65,5 @@ app.register(paymentRoute, { prefix: "/payments" });
 app.register(marketingRoutes, { prefix: "/marketing" });
 app.register(seoRoutes, { prefix: "/seo" });
 app.register(DashboardRoutes, { prefix: "/dashboard" });
+app.register(notificationRoutes, { prefix: "/notification" });
 export default app;

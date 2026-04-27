@@ -16,6 +16,7 @@ import {
   approveAndTransferRequisition,
   getRequisition,
   listTransfers,
+  getStockLedgerReport,
 } from "./inventory.controller";
 
 export async function inventoryRoutes(app: FastifyInstance) {
@@ -24,6 +25,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
   app.post("/stock", addStock);
   app.post("/get-stock", listStock);
   app.post("/stock/adjustments", getStockLedger);
+  app.post("/stock/adjustment-report", getStockLedgerReport);
   // Stock Transactions
   app.post("/create-stock/transaction", createStockTransaction);
 

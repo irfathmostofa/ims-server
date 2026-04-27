@@ -27,6 +27,7 @@ export async function DashboardStatastic(
       lowStockResult,
       latestOrdersResult,
       recentProductsResult,
+      totalOnlineSalesResult,
     ] = await Promise.all([
       // Total Stock
       pool.query(
@@ -241,6 +242,8 @@ export async function DashboardStatastic(
          ORDER BY p.created_at DESC
          LIMIT 5`,
       ),
+      pool.query(`SELECT COUNT(*) AS total_online_sales FROM order_online WHERE order_status='DELIVERED'
+`),
     ]);
 
     // Process the results
@@ -258,6 +261,8 @@ export async function DashboardStatastic(
           totalRevenue: parseFloat(revenueResult.rows[0]?.total_revenue) || 0,
           totalCost: parseFloat(costResult.rows[0]?.total_cost) || 0,
           totalProfit: parseFloat(profitResult.rows[0]?.total_profit) || 0,
+          totalOnlineSales:
+            parseFloat(totalOnlineSalesResult.rows[0]?.total_online_sales) || 0,
         },
 
         // Monthly Recap for Charts

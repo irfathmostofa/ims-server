@@ -46,25 +46,32 @@ export async function listStock(req: FastifyRequest, reply: FastifyReply) {
 
     // Base query
     let query = `
-      SELECT 
-        ins.id AS stock_id,
-        ins.quantity,
-        b.id AS branch_id,
-        b.name AS branch_name,
-        b.code AS branch_code,
-        pv.id AS variant_id,
-        pv.name AS variant_name,
-        pv.code AS variant_code,
-        p.id AS product_id,
-        p.name AS product_name,
-        p.code AS product_code,
-        p.selling_price,
-        p.cost_price
-      FROM inventory_stock AS ins
-      JOIN branch AS b ON b.id = ins.branch_id
-      JOIN product_variant AS pv ON pv.id = ins.product_variant_id
-      JOIN product AS p ON p.id = pv.product_id
-    `;
+    SELECT 
+      ins.id AS stock_id,
+      ins.quantity,
+      b.id AS branch_id,
+      b.name AS branch_name,
+      b.code AS branch_code,
+      pv.id AS variant_id,
+      pv.name AS variant_name,
+      pv.code AS variant_code,
+      p.id AS product_id,
+      p.name AS product_name,
+      p.code AS product_code,
+      p.selling_price,
+      p.cost_price,
+      (
+        SELECT pi.url
+        FROM product_image AS pi 
+        WHERE pi.product_variant_id = pv.id 
+          AND pi.is_primary = true 
+        LIMIT 1
+      ) AS primaryImage
+    FROM inventory_stock AS ins
+    JOIN branch AS b ON b.id = ins.branch_id
+    JOIN product_variant AS pv ON pv.id = ins.product_variant_id
+    JOIN product AS p ON p.id = pv.product_id
+`;
 
     let whereClause = "";
     const params: any[] = [];
@@ -322,6 +329,167 @@ export async function cancelProductTransfer(
 }
 
 export async function getStockLedger(req: FastifyRequest, reply: FastifyReply) {
+  try {
+    const {
+      branch_id,
+      product_variant_id,
+      date_from,
+      date_to,
+      page = 1,
+      limit = 20,
+      type,
+      search,
+    } = req.body as any;
+
+    const pageNum = parseInt(page.toString());
+    const limitNum = parseInt(limit.toString());
+    const offset = (pageNum - 1) * limitNum;
+
+    const values: any[] = [];
+    let paramCount = 0;
+
+    const conditions: string[] = [];
+
+    // Add filters
+    if (type && type !== "") {
+      paramCount++;
+      conditions.push(`st.type = $${paramCount}`);
+      values.push(type);
+    }
+    if (branch_id && branch_id !== "") {
+      paramCount++;
+      conditions.push(`st.branch_id = $${paramCount}`);
+      values.push(branch_id);
+    }
+
+    if (product_variant_id && product_variant_id !== "") {
+      paramCount++;
+      conditions.push(`st.product_variant_id = $${paramCount}`);
+      values.push(product_variant_id);
+    }
+
+    if (date_from && date_from !== "") {
+      paramCount++;
+      conditions.push(`DATE(st.created_at) >= $${paramCount}`);
+      values.push(date_from);
+    }
+
+    if (date_to && date_to !== "") {
+      paramCount++;
+      conditions.push(`DATE(st.created_at) <= $${paramCount}`);
+      values.push(date_to);
+    }
+
+    if (search && search !== "") {
+      const searchParam = `%${search}%`;
+      paramCount++;
+      conditions.push(`(
+        p.name ILIKE $${paramCount} OR 
+        p.code ILIKE $${paramCount} OR 
+        pv.name ILIKE $${paramCount} OR
+        b.name ILIKE $${paramCount}
+      )`);
+      values.push(searchParam);
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    // Main query for stock adjustments
+    const query = `
+      SELECT 
+        st.id,
+        st.branch_id,
+        b.name as branch_name,
+        b.code as branch_code,
+        st.product_variant_id,
+        p.name as product_name,
+        p.code as product_code,
+        pv.name as variant_name,
+        pv.code as variant_code,
+        st.quantity,
+        st.direction,
+        st.type,
+        st.reference_id,
+        st.created_at
+      FROM stock_transaction st
+      LEFT JOIN branch b ON st.branch_id = b.id
+      LEFT JOIN product_variant pv ON st.product_variant_id = pv.id
+      LEFT JOIN product p ON p.id = pv.product_id
+      ${whereClause}
+      ORDER BY st.created_at DESC
+      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+    `;
+
+    // Count query
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM stock_transaction st
+      LEFT JOIN branch b ON st.branch_id = b.id
+      LEFT JOIN product_variant pv ON st.product_variant_id = pv.id
+      LEFT JOIN product p ON p.id = pv.product_id
+      ${whereClause}
+    `;
+
+    // Add pagination parameters
+    values.push(limitNum, offset);
+
+    // Get count values (without pagination params)
+    const countValues = values.slice(0, -2);
+
+    // Execute queries
+    const [result, countResult] = await Promise.all([
+      pool.query(query, values),
+      pool.query(countQuery, countValues),
+    ]);
+
+    const total = parseInt(countResult.rows[0]?.total || 0);
+    const totalPages = Math.ceil(total / limitNum);
+
+    // Calculate summary
+    let totalIn = 0;
+    let totalOut = 0;
+
+    result.rows.forEach((row: any) => {
+      if (row.direction === "IN") {
+        totalIn += parseFloat(row.quantity);
+      } else if (row.direction === "OUT") {
+        totalOut += parseFloat(row.quantity);
+      }
+    });
+
+    const response = {
+      data: result.rows,
+      pagination: {
+        current_page: pageNum,
+        per_page: limitNum,
+        total_items: total,
+        total_pages: totalPages,
+        has_previous: pageNum > 1,
+        has_next: pageNum < totalPages,
+      },
+      summary: {
+        total_records: result.rows.length,
+        total_items: total,
+        total_in: totalIn,
+        total_out: totalOut,
+        net_change: totalIn - totalOut,
+      },
+    };
+
+    reply.send(
+      successResponse(response, "Stock adjustments retrieved successfully"),
+    );
+  } catch (err: any) {
+    console.error("Stock adjustments error:", err);
+    reply.status(400).send({ success: false, message: err.message });
+  }
+}
+
+export async function getStockLedgerReport(
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
   try {
     const {
       branch_id,

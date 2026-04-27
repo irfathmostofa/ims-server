@@ -1069,3 +1069,18 @@ CREATE TABLE message_history (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 );
 
+CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(200) NOT NULL,
+    message TEXT NOT NULL,
+    type VARCHAR(20) NOT NULL DEFAULT 'info'
+        CHECK (type IN ('success', 'warning', 'error', 'info')),
+    entity_type VARCHAR(50),
+    entity_id INT,
+    link VARCHAR(255),
+    read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
