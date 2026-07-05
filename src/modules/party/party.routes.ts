@@ -9,7 +9,6 @@ import {
 
 export default async function partyRoutes(app: FastifyInstance) {
   //   app.addHook("onRequest", app.authenticate);
-  // party
   app.post("/create-party", createParty);
   app.post("/get-party", getParty);
   app.post("/get-party-by-id", getPartyById);
