@@ -23,10 +23,11 @@ interface ActivityLogData {
 export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
   try {
     const fields = req.body as Record<string, any>;
+    const roleCode = await generatePrefixedId("role", "ROLE");
     fields.code = await generatePrefixedId("company", "COM");
     const checkCompany = await companyModel.findAll();
     if (checkCompany.length > 0) {
-      reply.status(409).send(errorResponse("Company Aready Exits"));
+      reply.status(409).send(errorResponse("Company Already Exits"));
     } else {
       const newCompany = await companyModel.create(fields);
       const branchData = [
@@ -37,7 +38,7 @@ export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
         newCompany.address,
         newCompany.phone,
       ];
-      const RoleData = ["ROLE-1", "Super Admin", "Can Access All"];
+      const RoleData = [roleCode, "Super Admin", "Can Access All"];
       await brancheModel.create(branchData);
       await roleModel.create(RoleData);
       reply.send(successResponse("Company created successfully"));

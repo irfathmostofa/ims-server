@@ -2,8 +2,9 @@ import { CrudModel } from "../../core/models/crud.model";
 
 export const companyModel = new CrudModel(
   "company",
-  ["code", "name", "address", "phone", "email", "logo", "website"],
   ["code", "name", "address", "phone", "email"],
+  ["code", "phone", "email", "website"],
+  ["logo"],
 );
 
 export const brancheModel = new CrudModel(
