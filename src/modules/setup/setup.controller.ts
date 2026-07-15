@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { errorResponse, successResponse } from "../../core/utils/response";
 import { generatePrefixedId } from "../../core/models/idGenerator";
-
+import bcrypt from "bcrypt";
 import {
   brancheModel,
   companyModel,
@@ -11,6 +11,7 @@ import {
   setupDataModel,
 } from "./setup.model";
 import pool from "../../config/db";
+import { userModel } from "../users/user.model";
 interface ActivityLogData {
   user_id?: number;
   action: string;
@@ -20,31 +21,68 @@ interface ActivityLogData {
   ip_address?: string;
 }
 // ========== COMPANY ==========
+
 export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
   try {
     const fields = req.body as Record<string, any>;
+
+    // Generate codes
+    const companyCode = await generatePrefixedId("company", "COM");
     const roleCode = await generatePrefixedId("role", "ROLE");
-    fields.code = await generatePrefixedId("company", "COM");
-    const checkCompany = await companyModel.findAll();
-    if (checkCompany.length > 0) {
-      reply.status(409).send(errorResponse("Company Already Exits"));
-    } else {
-      const newCompany = await companyModel.create(fields);
-      const branchData = [
-        "BR",
-        newCompany.id,
-        "Main Branch",
-        "Store",
-        newCompany.address,
-        newCompany.phone,
-      ];
-      const RoleData = [roleCode, "Super Admin", "Can Access All"];
-      await brancheModel.create(branchData);
-      await roleModel.create(RoleData);
-      reply.send(successResponse("Company created successfully"));
-    }
+    const userCode = await generatePrefixedId("users", "USER");
+    fields.password_hash = await bcrypt.hash(fields.password_hash, 10);
+    // Create company with proper field mapping
+    const companyData = {
+      code: companyCode,
+      name: fields.name,
+      address: fields.address,
+      phone: fields.phone,
+      email: fields.email,
+      logo: fields.logo || null,
+    };
+
+    const newCompany = await companyModel.create(companyData);
+
+    // Create branch - match the order of fields in model
+    const branchData = {
+      code: await generatePrefixedId("branch", "BR"),
+      company_id: newCompany.id,
+      name: "Main Branch",
+      type: "Store",
+      address: fields.address,
+      phone: fields.phone,
+    };
+
+    const newBranch = await brancheModel.create(branchData);
+
+    // Create role
+    const roleData = {
+      code: roleCode,
+      name: "Admin",
+      description: "Can Access All",
+    };
+
+    const newRole = await roleModel.create(roleData);
+
+    // Create user
+    const userData = {
+      code: userCode,
+      branch_id: newBranch.id,
+      username: fields.username, // or fields.email
+      phone: fields.phone,
+      password_hash: fields.password_hash,
+      role_id: newRole.id, // This should be role_id based on your model
+      address: fields.address || null,
+    };
+
+    await userModel.create(userData);
+
+    reply.send(successResponse("Company created successfully"));
   } catch (err: any) {
-    reply.status(400).send({ success: false, message: err.message });
+    reply.status(400).send({
+      success: false,
+      message: err.message,
+    });
   }
 }
 
