@@ -1,645 +1,601 @@
-import { FastifyRequest, FastifyReply } from "fastify";
-import { parse } from "papaparse";
-import XLSX from "xlsx";
+import { FastifyReply, FastifyRequest } from "fastify";
+import { successResponse } from "../../core/utils/response";
 import pool from "../../config/db";
 import {
   generatePrefixedId,
   generateRandomBarcode,
-  slugify,
 } from "../../core/models/idGenerator";
-import {
-  productModel,
-  productCategoryModel,
-  productVariantModel,
-  productBarcodeModel,
-  productImageModel,
-} from "./product.model";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import { PoolClient } from "pg";
 
-type Variant = {
-  name: string;
-  additional_price: number;
-  SKU?: string;
-  weight?: number;
-  weight_unit?: string;
-  is_replaceable?: boolean;
-  status?: string;
-  images?: { url: string; alt_text?: string; is_primary?: boolean }[];
-};
+// ---------- Types ----------
 
-type ProductData = {
-  name: string;
-  slug: string;
-  code?: string;
-  status?: string;
-  uom_id?: number;
-  cost_price?: number;
-  regular_price?: number; // Added regular_price
-  selling_price?: number;
-  categories?: { name: string; is_primary?: boolean }[];
-  variants?: Variant[];
-  created_by?: number;
-};
-
-type ProductPreview = {
-  row: number;
+interface BulkRow {
+  row_group: string;
   product_name: string;
-  category: string;
-  variant: Variant;
-  uom_name?: string;
-  cost_price?: number | null;
-  regular_price?: number | null; // Added regular_price
-  selling_price?: number | null;
-  stock_quantity?: number;
-};
-
-// ------------------- HELPER: parse CSV / XLSX -------------------
-async function parseFile(file: any): Promise<any[]> {
-  const buffer = await file.toBuffer();
-  const filename = file.filename || file.filepath;
-
-  if (filename.endsWith(".csv")) {
-    const csvString = buffer.toString("utf-8");
-    const parsed = parse(csvString, { header: true, skipEmptyLines: true });
-    return parsed.data as any[];
-  } else if (filename.endsWith(".xlsx")) {
-    const workbook = XLSX.read(buffer, { type: "buffer" });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    return XLSX.utils.sheet_to_json(sheet);
-  } else {
-    throw new Error("Unsupported file type. Only CSV or XLSX allowed.");
-  }
+  brand_name: string;
+  uom_name: string;
+  cost_price: string;
+  selling_price: string;
+  regular_price: string;
+  description?: string;
+  category_names?: string;
+  variant_name: string;
+  weight?: string;
+  weight_unit?: string;
+  is_replaceable?: string;
+  additional_price?: string;
+  image_url?: string;
+  is_primary_image?: string;
 }
 
-// ------------------- HELPER: GET OR CREATE UOM (Case-Insensitive) -------------------
-async function getOrCreateUOM(nameOrSymbol: string, userId: number) {
-  if (!nameOrSymbol || nameOrSymbol.trim() === "") return null;
-
-  const trimmedValue = nameOrSymbol.trim().toUpperCase();
-  const client = await pool.connect();
-
-  try {
-    const findQuery = `
-      SELECT * FROM uom 
-      WHERE LOWER(name) = LOWER($1) OR LOWER(symbol) = LOWER($1)
-      LIMIT 1
-    `;
-    const findResult = await client.query(findQuery, [trimmedValue]);
-
-    if (findResult.rows.length > 0) {
-      return findResult.rows[0];
-    }
-
-    const code = await generatePrefixedId("uom", "UOM");
-    const insertQuery = `
-      INSERT INTO uom (code, name, symbol, created_by) 
-      VALUES ($1, $2, $3, $4) 
-      RETURNING *
-    `;
-
-    const insertResult = await client.query(insertQuery, [
-      code,
-      trimmedValue,
-      trimmedValue,
-      userId,
-    ]);
-
-    return insertResult.rows[0];
-  } catch (error) {
-    console.error(`Error getting/creating UOM "${trimmedValue}":`, error);
-    return null;
-  } finally {
-    client.release();
-  }
+interface RowIssue {
+  row_index: number;
+  field: string;
+  message: string;
 }
 
-// ------------------- HELPER: GET OR CREATE CATEGORY (Case-Insensitive) -------------------
-async function getOrCreateCategory(name: string, userId: number) {
-  if (!name || name.trim() === "") return null;
-
-  const trimmedName = name.trim();
-  const client = await pool.connect();
-
-  try {
-    const findQuery =
-      "SELECT * FROM category WHERE LOWER(name) = LOWER($1) LIMIT 1";
-    const findResult = await client.query(findQuery, [trimmedName]);
-
-    if (findResult.rows.length > 0) {
-      return findResult.rows[0];
-    }
-
-    const code = await generatePrefixedId("category", "PCAT");
-    const slug = slugify(trimmedName);
-    const insertQuery = `
-      INSERT INTO category (code, name, slug, created_by) 
-      VALUES ($1, $2, $3, $4) 
-      RETURNING *
-    `;
-
-    const insertResult = await client.query(insertQuery, [
-      code,
-      trimmedName,
-      slug,
-      userId,
-    ]);
-
-    return insertResult.rows[0];
-  } catch (error) {
-    console.error(`Error getting/creating category "${trimmedName}":`, error);
-    return null;
-  } finally {
-    client.release();
-  }
+interface GroupPreview {
+  row_group: string;
+  product_name: string;
+  row_count: number;
+  status: "valid" | "error";
+  issues: RowIssue[];
+  brand_status: "existing" | "new" | "unknown";
+  uom_status: "existing" | "new" | "unknown";
+  category_status: { name: string; status: "existing" | "new" }[];
+  rows: BulkRow[];
 }
 
-// ------------------- VALIDATE PRODUCT DATA -------------------
-function validateProductData(data: Partial<ProductData>): string[] {
-  const errors: string[] = [];
-
-  if (!data.name) errors.push("Product name is required");
-  if (data.uom_id === undefined || data.uom_id === null)
-    errors.push("UOM ID is required");
-  if (data.cost_price === undefined || data.cost_price === null)
-    errors.push("Cost price is required");
-  if (data.regular_price === undefined || data.regular_price === null)
-    errors.push("Regular price is required");
-  if (data.selling_price === undefined || data.selling_price === null)
-    errors.push("Selling price is required");
-
-  return errors;
+interface GroupResult {
+  row_group: string;
+  product_name: string;
+  status: "success" | "failed";
+  product_id?: number;
+  error?: string;
 }
 
-// ------------------- CREATE PRODUCT (USED INTERNALLY) -------------------
-export async function createProductInternal(
-  productData: ProductData,
-  userId: number,
-  branchId?: number,
-  stockQuantity: number = 0,
-) {
-  const client = await pool.connect();
+// ---------- Shared helpers ----------
+/**
+ * Creates a per-transaction code generator. Queries the DB once per table
+ * (using the SAME client/transaction, so it sees the transaction's own
+ * uncommitted inserts is irrelevant — we never re-query; we just increment
+ * in memory after the first lookup). This avoids the pool.query() visibility
+ * bug where a fresh connection can't see uncommitted rows from this transaction,
+ * which caused duplicate codes when multiple new rows of the same table were
+ * created within a single confirm.
+ */
+function createCodeGenerator(client: PoolClient) {
+  const counters = new Map<string, number>();
 
-  try {
-    await client.query("BEGIN");
+  return async function nextCode(
+    table: string,
+    prefix: string,
+    padLength = 3,
+  ): Promise<string> {
+    const cacheKey = `${table}:${prefix}`;
 
-    // Validate required fields
-    const validationErrors = validateProductData(productData);
-    if (validationErrors.length > 0) {
-      throw new Error(`Validation failed: ${validationErrors.join(", ")}`);
+    if (!counters.has(cacheKey)) {
+      const { rows } = await client.query(
+        `SELECT MAX(CAST(SPLIT_PART(code, '-', 2) AS INTEGER)) AS max_id
+         FROM ${table}
+         WHERE code LIKE $1`,
+        [`${prefix}-%`],
+      );
+      counters.set(cacheKey, rows[0].max_id ?? 0);
     }
 
-    // ------------------- PRODUCT -------------------
-    productData.code =
-      productData.code || (await generatePrefixedId("product", "PROD"));
-    productData.created_by = userId;
-    productData.status = productData.status || "A";
+    const next = counters.get(cacheKey)! + 1;
+    counters.set(cacheKey, next);
+    return `${prefix}-${String(next).padStart(padLength, "0")}`;
+  };
+}
+function toBool(value: string | undefined, fallback = false): boolean {
+  if (value === undefined || value === "") return fallback;
+  return ["true", "1", "yes"].includes(String(value).trim().toLowerCase());
+}
 
-    const productInfo = {
-      code: productData.code,
-      name: productData.name,
-      slug: slugify(productData.name),
-      uom_id: productData.uom_id!,
-      cost_price: productData.cost_price!,
-      regular_price: productData.regular_price!, // Added regular_price from Excel
-      selling_price: productData.selling_price!,
-      status: productData.status,
-      created_by: productData.created_by,
-    };
+function toNumber(value: string | undefined): number | null {
+  if (value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isNaN(n) ? null : n;
+}
 
-    const product = await productModel.create(productInfo);
+/** Row-level field validation. Returns a list of issues (empty = valid). */
+function validateRow(row: BulkRow, rowIndex: number): RowIssue[] {
+  const issues: RowIssue[] = [];
+  const required: (keyof BulkRow)[] = [
+    "row_group",
+    "product_name",
+    "brand_name",
+    "uom_name",
+    "variant_name",
+    "cost_price",
+    "selling_price",
+    "regular_price",
+  ];
 
-    // ------------------- CATEGORIES -------------------
-    if (productData.categories && productData.categories.length > 0) {
-      for (const cat of productData.categories) {
-        try {
-          const catRecord = await getOrCreateCategory(cat.name, userId);
-
-          if (!catRecord || !catRecord.id) {
-            console.warn(
-              `Skipping category "${cat.name}" - could not get/create`,
-            );
-            continue;
-          }
-
-          await productCategoryModel.create({
-            product_id: product.id,
-            category_id: catRecord.id,
-            is_primary: cat.is_primary || false,
-            created_by: userId,
-          });
-        } catch (catError) {
-          console.error(`Error processing category "${cat.name}":`, catError);
-        }
-      }
-    }
-
-    // ------------------- VARIANTS -------------------
-    const variantsToCreate =
-      productData.variants && productData.variants.length > 0
-        ? productData.variants
-        : [
-            {
-              name: productData.name,
-              additional_price: 0,
-              images: [],
-            },
-          ];
-
-    for (const v of variantsToCreate) {
-      const variantData = {
-        code: await generatePrefixedId("product_variant", "VAR"),
-        product_id: product.id,
-        name: v.name,
-        additional_price: v.additional_price || 0,
-        status: v.status || "A",
-        created_by: userId,
-        weight: v.weight ?? null,
-        weight_unit: v.weight_unit ?? null,
-        is_replaceable: v.is_replaceable ?? false,
-        SKU: v.SKU ?? null,
-      };
-
-      const variant = await productVariantModel.create(variantData);
-
-      // ------------------- BARCODE -------------------
-      const barcode = await generateRandomBarcode(variantData.code);
-      await productBarcodeModel.create({
-        product_variant_id: variant.id,
-        barcode,
-        type: "EAN13",
-        is_primary: true,
-        status: "A",
-        created_by: userId,
+  for (const field of required) {
+    const val = row[field];
+    if (val === undefined || val === null || val.toString().trim() === "") {
+      issues.push({
+        row_index: rowIndex,
+        field,
+        message: `${field} is required`,
       });
-
-      // ------------------- INVENTORY STOCK -------------------
-      if (branchId && stockQuantity > 0) {
-        const stockCheck = await client.query(
-          `SELECT id FROM inventory_stock 
-           WHERE branch_id = $1 AND product_variant_id = $2`,
-          [branchId, variant.id],
-        );
-
-        if (stockCheck.rows.length > 0) {
-          await client.query(
-            `UPDATE inventory_stock 
-             SET quantity = quantity + $1 
-             WHERE branch_id = $2 AND product_variant_id = $3`,
-            [stockQuantity, branchId, variant.id],
-          );
-        } else {
-          await client.query(
-            `INSERT INTO inventory_stock (branch_id, product_variant_id, quantity) 
-             VALUES ($1, $2, $3)`,
-            [branchId, variant.id, stockQuantity],
-          );
-        }
-      }
-
-      // ------------------- IMAGES -------------------
-      if (v.images && v.images.length > 0) {
-        for (const img of v.images) {
-          await productImageModel.create({
-            code: await generatePrefixedId("product_image", "IMG"),
-            product_variant_id: variant.id,
-            url: img.url,
-            alt_text: img.alt_text || "Product Image",
-            is_primary: img.is_primary || false,
-            status: "A",
-            created_by: userId,
-          });
-        }
-      }
     }
-
-    await client.query("COMMIT");
-    return product;
-  } catch (err: any) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
   }
+
+  for (const numField of [
+    "cost_price",
+    "selling_price",
+    "regular_price",
+    "weight",
+    "additional_price",
+  ] as const) {
+    const raw = row[numField];
+    if (raw !== undefined && raw !== "" && toNumber(raw as string) === null) {
+      issues.push({
+        row_index: rowIndex,
+        field: numField,
+        message: `${numField} must be a valid number`,
+      });
+    }
+  }
+
+  return issues;
 }
 
-// ------------------- BULK PREVIEW -------------------
+/**
+ * Parses an uploaded file buffer into rows. Detects .xlsx/.xls vs .csv
+ * by filename extension and branches to SheetJS or Papaparse accordingly.
+ *
+ * IMPORTANT: papaparse "FieldMismatch" errors (extra/missing columns on a
+ * single row — usually caused by an unquoted comma inside a value like
+ * category_names) are NOT treated as fatal. They're recorded per-row in
+ * rowLevelErrors so that ONE bad row doesn't block the whole file. Only
+ * genuinely fatal parser errors (bad delimiter, unterminated quote, etc.)
+ * go into parseErrors and fail the whole upload.
+ */
+function parseFileToRows(
+  buffer: Buffer,
+  filename: string,
+): {
+  rows: BulkRow[];
+  parseErrors: string[];
+  rowLevelErrors: Map<number, string>;
+} {
+  const isExcel = /\.xlsx?$/i.test(filename);
+  const rowLevelErrors = new Map<number, string>();
+
+  if (isExcel) {
+    try {
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        return {
+          rows: [],
+          parseErrors: ["Excel file has no sheets"],
+          rowLevelErrors,
+        };
+      }
+      const sheet = workbook.Sheets[firstSheetName];
+      // defval: "" ensures blank cells come through as empty string, not undefined
+      // raw: false ensures numeric cells are stringified consistently (matches CSV behavior)
+      const rows = XLSX.utils.sheet_to_json<BulkRow>(sheet, {
+        defval: "",
+        raw: false,
+      });
+      return { rows, parseErrors: [], rowLevelErrors };
+    } catch (err: any) {
+      return {
+        rows: [],
+        parseErrors: [`Failed to read Excel file: ${err.message}`],
+        rowLevelErrors,
+      };
+    }
+  }
+
+  // CSV / TSV path — papaparse
+  const parsed = Papa.parse<BulkRow>(buffer.toString("utf-8"), {
+    header: true,
+    skipEmptyLines: true,
+    transform: (value) => (typeof value === "string" ? value.trim() : value),
+  });
+
+  const fatalErrors: string[] = [];
+
+  for (const e of parsed.errors) {
+    if (e.type === "FieldMismatch") {
+      // Row-level issue only — do not fail the whole file.
+      if (typeof e.row === "number") {
+        rowLevelErrors.set(
+          e.row,
+          `Column count mismatch on this row — check for an unquoted comma inside a value (e.g. category_names must be wrapped in quotes like "Rice,Grocery" if it contains a comma). Raw parser message: ${e.message}`,
+        );
+      }
+    } else {
+      // Delimiter detection failure, unterminated quote, etc. — these mean
+      // the file structure itself is broken and can't be trusted at all.
+      fatalErrors.push(`Row ${e.row ?? "?"}: ${e.message}`);
+    }
+  }
+
+  return { rows: parsed.data, parseErrors: fatalErrors, rowLevelErrors };
+}
+
+/** Read-only check: does a brand/uom/category with this name already exist? */
+async function checkExistsByName(
+  client: PoolClient,
+  table: "brand" | "uom" | "category",
+  name: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `SELECT id FROM ${table} WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+    [name.trim()],
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * Lookup-or-create by name. Used only in the CONFIRM step (writes).
+ * Preview uses checkExistsByName instead (read-only).
+ */
+async function getOrCreateByName(
+  client: PoolClient,
+  table: "brand" | "uom" | "category",
+  name: string,
+  prefix: string,
+  createdBy: number,
+  nextCode: (
+    table: string,
+    prefix: string,
+    padLength?: number,
+  ) => Promise<string>,
+): Promise<number> {
+  const existing = await client.query(
+    `SELECT id FROM ${table} WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+    [name.trim()],
+  );
+  if (existing.rows.length > 0) return existing.rows[0].id;
+
+  const code = await nextCode(table, prefix);
+  const slug = name.trim().toLowerCase().replace(/\s+/g, "-");
+
+  const insertQuery =
+    table === "uom"
+      ? `INSERT INTO uom (code, name, created_by) VALUES ($1,$2,$3) RETURNING id`
+      : `INSERT INTO ${table} (code, name, slug, created_by) VALUES ($1,$2,$3,$4) RETURNING id`;
+
+  const params =
+    table === "uom"
+      ? [code, name.trim(), createdBy]
+      : [code, name.trim(), slug, createdBy];
+  const inserted = await client.query(insertQuery, params);
+  return inserted.rows[0].id;
+}
+
+// ==========================================================
+// PREVIEW — parse + validate only, NO database writes
+// ==========================================================
+
 export async function bulkProductPreview(
   req: FastifyRequest,
   reply: FastifyReply,
 ) {
-  try {
-    const file = await req.file();
-    if (!file) throw new Error("No file uploaded");
+  const file = await req.file();
+  if (!file) {
+    return reply
+      .status(400)
+      .send({ success: false, message: "No file uploaded" });
+  }
 
-    const rows = await parseFile(file);
+  const buffer = await file.toBuffer();
+  const { rows, parseErrors, rowLevelErrors } = parseFileToRows(
+    buffer,
+    file.filename,
+  );
 
-    const validRows = rows.filter(
-      (row) =>
-        row &&
-        Object.keys(row).length > 0 &&
-        (row.product_name || row.variant_name || row.uom),
-    );
-
-    const preview: ProductPreview[] = [];
-    const errors: { row: number; error: string }[] = [];
-
-    for (let i = 0; i < validRows.length; i++) {
-      const row = validRows[i];
-      const rowNum = i + 1;
-
-      // Validate required fields
-      if (!row.product_name)
-        errors.push({ row: rowNum, error: "Product name required" });
-      if (!row.variant_name)
-        errors.push({ row: rowNum, error: "Variant name required" });
-      if (!row.uom)
-        errors.push({
-          row: rowNum,
-          error: "UOM (Unit of Measurement) required",
-        });
-      if (
-        (!row.cost_price && row.cost_price !== 0) ||
-        isNaN(parseFloat(row.cost_price))
-      )
-        errors.push({ row: rowNum, error: "Valid cost price required" });
-      if (
-        (!row.regular_price && row.regular_price !== 0) ||
-        isNaN(parseFloat(row.regular_price))
-      )
-        errors.push({ row: rowNum, error: "Valid regular price required" });
-      if (
-        (!row.selling_price && row.selling_price !== 0) ||
-        isNaN(parseFloat(row.selling_price))
-      )
-        errors.push({ row: rowNum, error: "Valid selling price required" });
-
-      // Parse numeric values
-      const cost_price = row.cost_price ? parseFloat(row.cost_price) : null;
-      const regular_price = row.regular_price
-        ? parseFloat(row.regular_price)
-        : null;
-      const selling_price = row.selling_price
-        ? parseFloat(row.selling_price)
-        : null;
-      const additional_price = parseFloat(row.additional_price) || 0;
-      const weight = row.weight ? parseFloat(row.weight) : undefined;
-      const stock_quantity = row.stock_quantity
-        ? parseFloat(row.stock_quantity)
-        : 0;
-
-      // Parse images
-      const images =
-        row.images && typeof row.images === "string"
-          ? (row.images as string)
-              .split(",")
-              .map((url: string, idx: number) => ({
-                url: url.trim(),
-                alt_text: `Image ${idx + 1}`,
-                is_primary: idx === 0,
-              }))
-          : [];
-
-      preview.push({
-        row: rowNum,
-        product_name: String(row.product_name).trim(),
-        category: row.category ? String(row.category).trim() : "",
-        uom_name: String(row.uom).trim(),
-        cost_price,
-        regular_price,
-        selling_price,
-        stock_quantity,
-        variant: {
-          name: String(row.variant_name).trim(),
-          additional_price,
-          SKU: row.SKU ? String(row.SKU).trim() : undefined,
-          weight: weight,
-          weight_unit: row.weight_unit
-            ? String(row.weight_unit).trim()
-            : undefined,
-          images,
-        },
-      });
-    }
-
-    reply.send({
-      preview,
-      errors,
-      total: validRows.length,
-      valid: preview.length - errors.length,
-      message:
-        errors.length > 0
-          ? "Some rows have validation errors"
-          : "All rows valid",
-    });
-  } catch (err: any) {
-    console.error("Preview error:", err);
-    reply.status(400).send({
+  // Only genuinely fatal parse errors block the whole file now.
+  if (parseErrors.length > 0) {
+    return reply.status(400).send({
       success: false,
-      message: err.message || "Error processing file",
+      message: "Failed to parse file",
+      errors: parseErrors,
     });
   }
+  if (rows.length === 0) {
+    return reply.status(400).send({ success: false, message: "File is empty" });
+  }
+
+  // Group rows by row_group, tracking original index for error reporting
+  const groups = new Map<string, { row: BulkRow; index: number }[]>();
+  rows.forEach((row, index) => {
+    const key = row.row_group || `__missing_${index}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push({ row, index });
+  });
+
+  const client = await pool.connect();
+  const previews: GroupPreview[] = [];
+
+  try {
+    for (const [rowGroup, entries] of groups) {
+      const issues: RowIssue[] = [];
+
+      for (const { row, index } of entries) {
+        issues.push(...validateRow(row, index));
+
+        // Fold in any row-level CSV structure issue (e.g. unquoted comma)
+        if (rowLevelErrors.has(index)) {
+          issues.push({
+            row_index: index,
+            field: "_row",
+            message: rowLevelErrors.get(index)!,
+          });
+        }
+      }
+
+      const first = entries[0].row;
+      let brandStatus: "existing" | "new" | "unknown" = "unknown";
+      let uomStatus: "existing" | "new" | "unknown" = "unknown";
+      const categoryStatus: { name: string; status: "existing" | "new" }[] = [];
+
+      // Only do existence checks if the basic required fields are present
+      if (issues.length === 0) {
+        brandStatus = (await checkExistsByName(
+          client,
+          "brand",
+          first.brand_name,
+        ))
+          ? "existing"
+          : "new";
+        uomStatus = (await checkExistsByName(client, "uom", first.uom_name))
+          ? "existing"
+          : "new";
+
+        const categoryNames = (first.category_names ?? "")
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean);
+
+        for (const catName of categoryNames) {
+          const exists = await checkExistsByName(client, "category", catName);
+          categoryStatus.push({
+            name: catName,
+            status: exists ? "existing" : "new",
+          });
+        }
+      }
+
+      previews.push({
+        row_group: rowGroup,
+        product_name: first.product_name || "(missing)",
+        row_count: entries.length,
+        status: issues.length > 0 ? "error" : "valid",
+        issues,
+        brand_status: brandStatus,
+        uom_status: uomStatus,
+        category_status: categoryStatus,
+        rows: entries.map((e) => e.row),
+      });
+    }
+  } finally {
+    client.release();
+  }
+
+  const validCount = previews.filter((p) => p.status === "valid").length;
+  const errorCount = previews.length - validCount;
+
+  return reply.send(
+    successResponse(
+      {
+        total_groups: previews.length,
+        valid_groups: validCount,
+        error_groups: errorCount,
+        groups: previews,
+      },
+      "Preview generated",
+    ),
+  );
 }
 
-// ------------------- BULK CONFIRM -------------------
+// ==========================================================
+// CONFIRM — takes validated JSON, performs actual inserts
+// ==========================================================
+
+async function processProductGroup(
+  client: PoolClient,
+  rowGroup: string,
+  rows: BulkRow[],
+  createdBy: number,
+): Promise<GroupResult> {
+  const nextCode = createCodeGenerator(client); // ← scoped to this transaction
+
+  const first = rows[0];
+
+  const brandId = await getOrCreateByName(
+    client,
+    "brand",
+    first.brand_name,
+    "BRAND",
+    createdBy,
+    nextCode,
+  );
+  const uomId = await getOrCreateByName(
+    client,
+    "uom",
+    first.uom_name,
+    "UOM",
+    createdBy,
+    nextCode,
+  );
+
+  const productCode = await nextCode("product", "PRD");
+  const productSlug = first.product_name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+
+  const productResult = await client.query(
+    `INSERT INTO product
+      (code, uom_id, name, slug, description, brand_id, cost_price, selling_price, regular_price, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING id`,
+    [
+      productCode,
+      uomId,
+      first.product_name.trim(),
+      productSlug,
+      first.description ?? null,
+      brandId,
+      toNumber(first.cost_price),
+      toNumber(first.selling_price),
+      toNumber(first.regular_price),
+      createdBy,
+    ],
+  );
+  const productId = productResult.rows[0].id;
+
+  const categoryNames = (first.category_names ?? "")
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  for (const catName of categoryNames) {
+    const categoryId = await getOrCreateByName(
+      client,
+      "category",
+      catName,
+      "PCAT",
+      createdBy,
+      nextCode,
+    );
+    await client.query(
+      `INSERT INTO product_categories (product_id, category_id, is_primary, created_by)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (product_id, category_id) DO NOTHING`,
+      [productId, categoryId, categoryNames.indexOf(catName) === 0, createdBy],
+    );
+  }
+
+  const variantMap = new Map<string, BulkRow[]>();
+  for (const row of rows) {
+    const key = row.variant_name.trim();
+    if (!variantMap.has(key)) variantMap.set(key, []);
+    variantMap.get(key)!.push(row);
+  }
+
+  for (const [variantName, variantRows] of variantMap) {
+    const vFirst = variantRows[0];
+    const variantCode = await nextCode("product_variant", "PVAR");
+    const sku = await nextCode("product_variant", "SKU");
+
+    const variantResult = await client.query(
+      `INSERT INTO product_variant
+        (code, product_id, name, weight, sku, weight_unit, is_replaceable, additional_price, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id`,
+      [
+        variantCode,
+        productId,
+        variantName,
+        toNumber(vFirst.weight),
+        sku,
+        vFirst.weight_unit ?? "kg",
+        toBool(vFirst.is_replaceable, false),
+        toNumber(vFirst.additional_price) ?? 0,
+        createdBy,
+      ],
+    );
+    const variantId = variantResult.rows[0].id;
+
+    const barcode = generateRandomBarcode("EAN");
+    await client.query(
+      `INSERT INTO product_barcode (product_variant_id, barcode, is_primary, created_by)
+       VALUES ($1,$2,$3,$4)`,
+      [variantId, barcode, true, createdBy],
+    );
+
+    for (const row of variantRows) {
+      if (!row.image_url) continue;
+      const imageCode = await nextCode("product_image", "IMG");
+      await client.query(
+        `INSERT INTO product_image (code, product_variant_id, url, is_primary, created_by)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [
+          imageCode,
+          variantId,
+          row.image_url,
+          toBool(row.is_primary_image, false),
+          createdBy,
+        ],
+      );
+    }
+  }
+
+  return {
+    row_group: rowGroup,
+    product_name: first.product_name,
+    status: "success",
+    product_id: productId,
+  };
+}
+
 export async function bulkProductConfirm(
   req: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const client = await pool.connect();
+  const userId = (req.user as { id: number }).id;
+  const body = req.body as {
+    groups: { row_group: string; rows: BulkRow[] }[];
+  };
 
-  try {
-    await client.query("BEGIN");
-
-    const body = req.body as { products: any[]; branch_code?: string };
-
-    if (!body || !body.products || !Array.isArray(body.products)) {
-      return reply.status(400).send({
-        success: false,
-        message: "Invalid request body. Expected { products: [] }",
-      });
-    }
-
-    if (body.products.length === 0) {
-      return reply.status(400).send({
-        success: false,
-        message: "No products to create",
-      });
-    }
-
-    const createdProducts: any[] = [];
-    const failedProducts: { product: string; error: string; row?: number }[] =
-      [];
-
-    const userId = (req.user as { id: number } | null)?.id;
-    if (!userId) {
-      return reply.status(401).send({
-        success: false,
-        message: "User not authenticated",
-      });
-    }
-
-    let branchId = null;
-    const branchCode = body.branch_code || (req.user as any)?.branch_code;
-
-    if (branchCode) {
-      const branchResult = await client.query(
-        "SELECT id FROM branch WHERE code = $1 AND status = 'A'",
-        [branchCode],
-      );
-      if (branchResult.rows.length === 0) {
-        return reply.status(400).send({
-          success: false,
-          message: `Branch with code "${branchCode}" not found`,
-        });
-      }
-      branchId = branchResult.rows[0].id;
-    } else {
-      const defaultBranch = await client.query(
-        "SELECT id FROM branch WHERE is_default = true AND status = 'A' LIMIT 1",
-      );
-      if (defaultBranch.rows.length === 0) {
-        return reply.status(400).send({
-          success: false,
-          message: "No branch specified and no default branch found",
-        });
-      }
-      branchId = defaultBranch.rows[0].id;
-    }
-
-    for (let i = 0; i < body.products.length; i++) {
-      const prod = body.products[i];
-      const rowNum = prod.row || i + 1;
-
-      try {
-        if (!prod.product_name) {
-          throw new Error("Product name is required");
-        }
-
-        if (!prod.uom_name) {
-          throw new Error(
-            `UOM (Unit of Measurement) is required for product "${prod.product_name}"`,
-          );
-        }
-
-        if (
-          prod.cost_price === undefined ||
-          prod.cost_price === null ||
-          isNaN(parseFloat(prod.cost_price))
-        ) {
-          throw new Error(
-            `Valid cost price is required for product "${prod.product_name}"`,
-          );
-        }
-
-        if (
-          prod.regular_price === undefined ||
-          prod.regular_price === null ||
-          isNaN(parseFloat(prod.regular_price))
-        ) {
-          throw new Error(
-            `Valid regular price is required for product "${prod.product_name}"`,
-          );
-        }
-
-        if (
-          prod.selling_price === undefined ||
-          prod.selling_price === null ||
-          isNaN(parseFloat(prod.selling_price))
-        ) {
-          throw new Error(
-            `Valid selling price is required for product "${prod.product_name}"`,
-          );
-        }
-
-        const uomRecord = await getOrCreateUOM(prod.uom_name, userId);
-        if (!uomRecord) {
-          throw new Error(`Could not find or create UOM "${prod.uom_name}"`);
-        }
-
-        const categories = [];
-        if (prod.category && prod.category.trim() !== "") {
-          const categoryRecord = await getOrCreateCategory(
-            prod.category,
-            userId,
-          );
-          if (categoryRecord) {
-            categories.push({
-              name: prod.category,
-              is_primary: true,
-            });
-          }
-        }
-
-        const stockQuantity = parseFloat(prod.stock_quantity) || 0;
-
-        const variant: Variant = {
-          name: prod.variant_name || prod.product_name,
-          additional_price: parseFloat(prod.additional_price) || 0,
-          SKU: prod.SKU || undefined,
-          weight: prod.weight ? parseFloat(prod.weight) : undefined,
-          weight_unit: prod.weight_unit || undefined,
-          images: prod.images || [],
-        };
-
-        const productData: ProductData = {
-          name: prod.product_name,
-          slug: slugify(prod.product_name),
-          uom_id: uomRecord.id,
-          cost_price: parseFloat(prod.cost_price),
-          regular_price: parseFloat(prod.regular_price), // Added regular_price
-          selling_price: parseFloat(prod.selling_price),
-          categories: categories,
-          variants: [variant],
-          status: "A",
-        };
-
-        const product = await createProductInternal(
-          productData,
-          userId,
-          branchId,
-          stockQuantity,
-        );
-
-        createdProducts.push({
-          id: product.id,
-          code: product.code,
-          name: product.name,
-          variant: variant.name,
-          cost_price: productData.cost_price,
-          regular_price: productData.regular_price,
-          selling_price: productData.selling_price,
-          stock_added: stockQuantity,
-          branch: branchCode || "default",
-        });
-      } catch (err: any) {
-        console.error(`Error creating product row ${rowNum}:`, err);
-        failedProducts.push({
-          product: prod.product_name || `Row ${rowNum}`,
-          error: err.message,
-          row: rowNum,
-        });
-      }
-    }
-
-    await client.query("COMMIT");
-
-    reply.send({
-      success: true,
-      message: `Successfully created ${createdProducts.length} products`,
-      created_count: createdProducts.length,
-      failed_count: failedProducts.length,
-      createdProducts,
-      failedProducts,
-    });
-  } catch (err: any) {
-    await client.query("ROLLBACK");
-    console.error("Unexpected error in bulkProductConfirm:", err);
-    reply.status(500).send({
-      success: false,
-      message: "Internal server error",
-      error: process.env.NODE_ENV === "development" ? err.message : undefined,
-    });
-  } finally {
-    client.release();
+  if (!body?.groups || body.groups.length === 0) {
+    return reply
+      .status(400)
+      .send({ success: false, message: "No validated groups provided" });
   }
+
+  const results: GroupResult[] = [];
+
+  for (const group of body.groups) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await processProductGroup(
+        client,
+        group.row_group,
+        group.rows,
+        userId,
+      );
+      await client.query("COMMIT");
+      results.push(result);
+    } catch (err: any) {
+      await client.query("ROLLBACK");
+      results.push({
+        row_group: group.row_group,
+        product_name: group.rows[0]?.product_name ?? "unknown",
+        status: "failed",
+        error: err.message ?? "Unknown error",
+      });
+    } finally {
+      client.release();
+    }
+  }
+
+  const successCount = results.filter((r) => r.status === "success").length;
+
+  return reply.send(
+    successResponse(
+      {
+        total: results.length,
+        success: successCount,
+        failed: results.length - successCount,
+        results,
+      },
+      "Bulk product upload completed",
+    ),
+  );
 }
