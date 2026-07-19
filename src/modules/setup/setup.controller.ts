@@ -12,6 +12,7 @@ import {
 } from "./setup.model";
 import pool from "../../config/db";
 import { userModel } from "../users/user.model";
+import { DEFAULT_SETUP_DATA } from "../../core/utils/default";
 interface ActivityLogData {
   user_id?: number;
   action: string;
@@ -22,16 +23,104 @@ interface ActivityLogData {
 }
 // ========== COMPANY ==========
 
+async function insertDefaultSetupData(
+  client: any,
+  createdBy: number,
+  nextCode: (
+    table: string,
+    prefix: string,
+    padLength?: number,
+  ) => Promise<string>,
+) {
+  for (const item of DEFAULT_SETUP_DATA) {
+    const code = await nextCode("setup_data", "STD");
+
+    // Match the existing double-encoded storage format exactly:
+    // the jsonb column holds a JSON STRING (escaped JSON text),
+    // not a raw JSON object — so we JSON.stringify twice.
+    const doubleEncodedValue = JSON.stringify(JSON.stringify(item.value));
+
+    await client.query(
+      `INSERT INTO setup_data (code, group_name, key_name, value, status, created_by)
+       VALUES ($1, $2, $3, $4::jsonb, 'A', $5)`,
+      [code, item.group_name, item.key_name, doubleEncodedValue, createdBy],
+    );
+  }
+}
+
+async function insertDefaultDeliveryMethod(
+  client: any,
+  createdBy: number,
+  nextCode: (
+    table: string,
+    prefix: string,
+    padLength?: number,
+  ) => Promise<string>,
+) {
+  const code = await nextCode("delivery_methods", "DLV");
+
+  await client.query(
+    `INSERT INTO delivery_methods
+      (code, name, type, estimated_days_min, estimated_days_max, is_active, display_order, config, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [
+      code,
+      "Cash on Delivery",
+      "cod",
+      1,
+      5,
+      true,
+      0,
+      JSON.stringify({}), // config — empty for now, editable later
+      createdBy,
+    ],
+  );
+}
+
+function createCodeGenerator(client: any) {
+  const counters = new Map<string, number>();
+
+  return async function nextCode(
+    table: string,
+    prefix: string,
+    padLength = 3,
+  ): Promise<string> {
+    const cacheKey = `${table}:${prefix}`;
+
+    if (!counters.has(cacheKey)) {
+      const { rows } = await client.query(
+        `SELECT MAX(CAST(SPLIT_PART(code, '-', 2) AS INTEGER)) AS max_id
+         FROM ${table}
+         WHERE code LIKE $1`,
+        [`${prefix}-%`],
+      );
+      counters.set(cacheKey, rows[0].max_id ?? 0);
+    }
+
+    const next = counters.get(cacheKey)! + 1;
+    counters.set(cacheKey, next);
+    return `${prefix}-${String(next).padStart(padLength, "0")}`;
+  };
+}
+
 export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
+  const client = await pool.connect();
+
   try {
+    await client.query("BEGIN");
+
     const fields = req.body as Record<string, any>;
+    const nextCode = createCodeGenerator(client);
 
     // Generate codes
-    const companyCode = await generatePrefixedId("company", "COM");
-    const roleCode = await generatePrefixedId("role", "ROLE");
-    const userCode = await generatePrefixedId("users", "USER");
+    const companyCode = await nextCode("company", "COM");
+    const roleCode = await nextCode("role", "ROLE");
+    const userCode = await nextCode("users", "USER");
     fields.password_hash = await bcrypt.hash(fields.password_hash, 10);
-    // Create company with proper field mapping
+
+    // Create company — pass `client` so this insert runs inside the
+    // transaction, not on a separate pool connection. If companyModel.create
+    // doesn't yet accept an optional client param, add it (see note below).
     const companyData = {
       code: companyCode,
       name: fields.name,
@@ -40,20 +129,18 @@ export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
       email: fields.email,
       logo: fields.logo || null,
     };
+    const newCompany = await companyModel.create(companyData, client);
 
-    const newCompany = await companyModel.create(companyData);
-
-    // Create branch - match the order of fields in model
+    // Create branch
     const branchData = {
-      code: await generatePrefixedId("branch", "BR"),
+      code: await nextCode("branch", "BR"),
       company_id: newCompany.id,
       name: "Main Branch",
       type: "Store",
       address: fields.address,
       phone: fields.phone,
     };
-
-    const newBranch = await brancheModel.create(branchData);
+    const newBranch = await brancheModel.create(branchData, client);
 
     // Create role
     const roleData = {
@@ -61,28 +148,45 @@ export async function createCompany(req: FastifyRequest, reply: FastifyReply) {
       name: "Admin",
       description: "Can Access All",
     };
-
-    const newRole = await roleModel.create(roleData);
+    const newRole = await roleModel.create(roleData, client);
 
     // Create user
     const userData = {
       code: userCode,
       branch_id: newBranch.id,
-      username: fields.username, // or fields.email
+      username: fields.username,
       phone: fields.phone,
       password_hash: fields.password_hash,
-      role_id: newRole.id, // This should be role_id based on your model
+      role_id: newRole.id,
       address: fields.address || null,
     };
+    const newUser = await userModel.create(userData, client);
 
-    await userModel.create(userData);
+    // ---- Default website setup data + delivery method ----
+    // Personalize the "general" website config with the company's own
+    // name/email before inserting, since these are known at creation time.
+    const generalDefault = DEFAULT_SETUP_DATA.find(
+      (d) => d.key_name === "general",
+    );
+    if (generalDefault && !Array.isArray(generalDefault.value)) {
+      generalDefault.value.site_title = fields.name;
+      generalDefault.value.admin_email = fields.email;
+    }
 
-    reply.send(successResponse("Company created successfully"));
+    await insertDefaultSetupData(client, newUser.id, nextCode);
+    await insertDefaultDeliveryMethod(client, newUser.id, nextCode);
+
+    await client.query("COMMIT");
+
+    reply.send(successResponse(null, "Company created successfully"));
   } catch (err: any) {
+    await client.query("ROLLBACK");
     reply.status(400).send({
       success: false,
       message: err.message,
     });
+  } finally {
+    client.release();
   }
 }
 
